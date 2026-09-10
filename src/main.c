@@ -19,56 +19,25 @@
   #include <unistd.h>
   #include <pthread.h>
 #endif
-#include "lvgl/lvgl.h"
-#include "lvgl/examples/lv_examples.h"
-#include "lvgl/demos/lv_demos.h"
+#include <sys/time.h>
+#include "../lvgl/lvgl.h"
 #include <SDL.h>
 
 #include "hal/hal.h"
 
-/*********************
- *      DEFINES
- *********************/
+#include <errno.h>
+#include <fcntl.h>
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 
-/**********************
- *      TYPEDEFS
- **********************/
-
-/**********************
- *  STATIC PROTOTYPES
- **********************/
-
-/**********************
- *  STATIC VARIABLES
- **********************/
-
-/**********************
- *      MACROS
- **********************/
-
-/**********************
- *   GLOBAL FUNCTIONS
- **********************/
-
-#if LV_USE_OS != LV_OS_FREERTOS
 
 #include "race_dashboard.h"
-
-int main(int argc, char **argv)
-{
-  (void)argc; /*Unused*/
-  (void)argv; /*Unused*/
-
-  /*Initialize LVGL*/
-  lv_init();
-
-  /*Initialize the HAL (display, input devices, tick) for LVGL*/
-  sdl_hal_init(1024, 600);
-
-  race_dashboard_create(lv_scr_act());
-
-  race_telemetry_t t = {
-    .speed_mph = 42.3f,
+struct timeval old;
+race_telemetry_t t = {
+    .speed_mph = 0.0f,
     .airspeed_mph = 8.1f,
     .distance_ft = 0.0f,
     .voltage_v = 27.8f,
@@ -77,6 +46,18 @@ int main(int argc, char **argv)
     .engine_on = true,
    };
 
+int main(int argc, char **argv)
+{
+  /*Initialize LVGL*/
+  lv_init();
+
+  /*Initialize the HAL (display, input devices, tick) for LVGL*/
+  sdl_hal_init(1024, 600);
+
+  race_dashboard_create(lv_scr_act());
+
+  t.speed_mph = 15;
+
   while(1) {
     /* Periodically call the lv_task handler.
      * It could be done in a timer interrupt or an OS task too.*/
@@ -84,17 +65,13 @@ int main(int argc, char **argv)
     if(sleep_time_ms == LV_NO_TIMER_READY){
 	    sleep_time_ms = LV_DEF_REFR_PERIOD;
     }
-    usleep(sleep_time_ms * 1000);
 
+    t.distance_ft += 1;
     race_dashboard_set_telemetry(&t);
-    t.distance_ft += 10;
   }
 
   return 0;
 }
-
-
-#endif
 
 /**********************
  *   STATIC FUNCTIONS

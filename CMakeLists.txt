@@ -1,42 +1,6 @@
 cmake_minimum_required(VERSION 3.12.4)
 project(lvgl C CXX)
 
-# Set the correct FreeRTOS port for your system (e.g., Posix for WSL)
-set(FREERTOS_PORT GCC_POSIX CACHE STRING "Port for FreeRTOS on Posix environment")
-
-set(LVGL_PRO_PROJECT_DIR
-    ""
-    CACHE PATH "Path to LVGL Pro Project folder")
-
-option(USE_FREERTOS "Enable FreeRTOS" OFF) # Turn this on to enable FreeRTOS
-
-if(USE_FREERTOS)
-    message(STATUS "FreeRTOS is enabled")
-
-    # FreeRTOS integration when USE_FREERTOS is enabled
-    add_library(freertos_config INTERFACE)
-    target_include_directories(freertos_config SYSTEM INTERFACE ${PROJECT_SOURCE_DIR}/config)
-    target_compile_definitions(freertos_config INTERFACE projCOVERAGE_TEST=0)
-
-    # Add FreeRTOS as a subdirectory
-    add_subdirectory(FreeRTOS)
-
-    # FreeRTOS-specific include directories
-    include_directories(${PROJECT_SOURCE_DIR}/FreeRTOS/include)
-    include_directories(${PROJECT_SOURCE_DIR}/FreeRTOS/portable/ThirdParty/GCC/Posix)
-    include_directories(${PROJECT_SOURCE_DIR}/config)
-
-    # Add FreeRTOS sources
-    file(GLOB FREERTOS_SOURCES
-        "${PROJECT_SOURCE_DIR}/FreeRTOS/*.c"
-        "${PROJECT_SOURCE_DIR}/FreeRTOS/portable/MemMang/heap_4.c"
-        "${PROJECT_SOURCE_DIR}/FreeRTOS/portable/ThirdParty/GCC/Posix/*.c"
-    )
-else()
-    message(STATUS "FreeRTOS is disabled")
-    set(FREERTOS_SOURCES "")  # No FreeRTOS sources if FreeRTOS is disabled
-endif()
-
 # Main include files of the project
 include_directories(${PROJECT_SOURCE_DIR}/main/inc)
 
@@ -69,16 +33,11 @@ add_compile_definitions($<$<BOOL:${LV_USE_FFMPEG}>:LV_USE_FFMPEG=1>)
 add_subdirectory(lvgl)
 target_include_directories(lvgl PUBLIC ${PROJECT_SOURCE_DIR} ${SDL2_INCLUDE_DIRS})
 
-set(MAIN_SOURCES src/mouse_cursor_icon.c src/hal/hal.c)
+set(MAIN_SOURCES src/hal/hal.c)
 set(MAIN_LIBS lvgl lvgl::examples lvgl::demos lvgl::thorvg ${SDL2_LIBRARIES})
 
 # Create the main executable, depending on the FreeRTOS option
-if(USE_FREERTOS)
-    list(APPEND MAIN_SOURCES src/freertos_main.c src/freertos/freertos_posix_port.c ${FREERTOS_SOURCES})
-    list(APPEND MAIN_LIBS freertos_config freertos_kernel)
-else()
-    list(APPEND MAIN_SOURCES src/main.c src/race_dashboard.c)
-endif()
+list(APPEND MAIN_SOURCES src/main.c src/race_dashboard.c)
 
 
 if(NOT MSVC)
@@ -120,25 +79,6 @@ if(LV_USE_FREETYPE)
     find_package(Freetype REQUIRED)
     target_include_directories(lvgl PUBLIC ${FREETYPE_INCLUDE_DIRS})
     list(APPEND MAIN_LIBS ${FREETYPE_LIBRARIES})
-endif()
-
-if(LVGL_PRO_PROJECT_DIR)
-  if(EXISTS "${LVGL_PRO_PROJECT_DIR}/CMakeLists.txt")
-    add_subdirectory(${LVGL_PRO_PROJECT_DIR} ui)
-    list(APPEND MAIN_LIBS lib-ui)
-
-    target_compile_definitions(lib-ui PUBLIC LV_LVGL_H_INCLUDE_SIMPLE)
-    target_include_directories(lib-ui PUBLIC
-      ${LVGL_PRO_PROJECT_DIR}  # local headers like ui.h, generated files, etc.
-      ${CMAKE_SOURCE_DIR}/lvgl # include "lvgl.h" works
-    )
-    message(STATUS "LVGL Pro Project enabled from: ${LVGL_PRO_PROJECT_DIR}")
-  else()
-    message(
-      WARNING
-        "LVGL_PRO_PROJECT_DIR specified but no CMakeLists.txt found at: ${LVGL_PRO_PROJECT_DIR}"
-    )
-  endif()
 endif()
 
 add_executable(main ${MAIN_SOURCES})

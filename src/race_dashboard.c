@@ -403,7 +403,7 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
 {
     if(!t || !dash.root) return;
     char buf[32];
-    snprintf(buf, sizeof(buf), "%d", (int)lroundf(t->speed_mph));
+    snprintf(buf, sizeof(buf), "%.1f", t->speed_mph);
     lv_label_set_text(dash.speed_value, buf);
 
     snprintf(buf, sizeof(buf), "%.1f", t->airspeed_mph);
@@ -422,7 +422,7 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
     lv_obj_set_style_bg_color(dash.running, lv_color_hex(t->engine_on ? C_GREEN : C_RED), 0);
     segment_type_t status = t->engine_on ? SEG_BURN : SEG_COAST;
 
-    if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
+    //if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
 
     dash.reset_was_pressed = t->timer_reset;
     append_live(t->distance_ft, status);

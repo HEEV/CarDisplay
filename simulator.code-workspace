@@ -34,11 +34,23 @@
 		"version": "2.0.0",
 		"tasks": [
 			{
-				"label": "Build",
+				"label": "Configure",
+				"type": "shell",
 				"command": "cmake",
 				"args": [
-					"--build", "${command:cmake.buildDirectory}"
+					"-B", "${workspaceFolder}/build",
+					"-S", "${workspaceFolder}"
 				],
+				"problemMatcher": []
+			},
+			{
+				"label": "Build",
+				"type": "shell",
+				"command": "cmake",
+				"args": [
+					"--build", "${workspaceFolder}/build", "--parallel"
+				],
+				"dependsOn": "Configure",
 				"group": {
 					"kind": "build",
 					"isDefault": true
@@ -57,14 +69,23 @@
 				}
 			},
 			{
-				"label": "Build and Run",
+				"label": "Run Simulator",
 				"type": "shell",
 				"command": "${workspaceFolder}/bin/main",
+				"options": {
+					"cwd": "${workspaceFolder}"
+				},
+				"dependsOn": "Build",
 				"group": {
 					"kind": "test",
 					"isDefault": true
 				},
-				"dependsOn": "Build"
+				"presentation": {
+					"reveal": "always",
+					"panel": "dedicated",
+					"clear": true
+				},
+				"problemMatcher": []
 			}
 		],
 	},
@@ -72,6 +93,28 @@
 	"launch": {
 		"version": "0.2.0",
 		"configurations": [
+			{
+				"name": "Run Simulator",
+				"type": "cppdbg",
+				"request": "launch",
+				"program": "${workspaceFolder}/bin/main",
+				"args": [],
+				"cwd": "${workspaceFolder}",
+				"preLaunchTask": "Build",
+				"stopAtEntry": false,
+				"externalConsole": false,
+				"linux": {
+					"MIMode": "gdb",
+					"miDebuggerPath": "/usr/bin/gdb"
+				},
+				"osx": {
+					"MIMode": "lldb"
+				},
+				"windows": {
+					"MIMode": "gdb",
+					"miDebuggerPath": "C:\\MinGw\\bin\\gdb.exe"
+				}
+			},
 			{
 				"name": "Debug LVGL demo with gdb",
 				"type": "cppdbg",

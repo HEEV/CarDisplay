@@ -451,7 +451,8 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
     lv_obj_set_style_bg_color(dash.running, lv_color_hex(t->engine_on ? C_ICON_ON : C_ICON_OFF), 0);
     segment_type_t status = t->engine_on ? SEG_BURN : SEG_COAST;
 
-    //if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
+    /* Restart on the press, not for as long as the button is held down. */
+    if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
 
     dash.reset_was_pressed = t->timer_reset;
     append_live(t->distance_ft, status);

@@ -22,6 +22,21 @@
 #define RAIL_LAP_W     244
 #define RAIL_LAP_STRIDE 250
 
+/* Dial geometry, taken from the browser build's stylesheet.  Ticks sit in a
+   band between radius 195 and 225, each five degrees wide on a nine degree
+   pitch, sweeping ninety degrees down each side.  The solid arcs that
+   replace them occupy exactly the same band so nothing shifts when the dial
+   swaps between the two. */
+#define DIAL_OUTER_R    225
+#define DIAL_BAND        30
+#define DIAL_MID_R      (DIAL_OUTER_R - DIAL_BAND / 2)
+#define DIAL_BOX        (DIAL_OUTER_R * 2)
+#define TICK_W           18
+#define TICK_PITCH_DEG    9.0f
+/* Index 0 of each wing is its lowest tick, the end the countdown starts from. */
+#define WING_LEFT_BASE  137.5f
+#define WING_RIGHT_BASE  38.5f
+
 #define C_BG              0x000000  /* --color-bg */
 #define C_BG_SECONDARY    0x121212  /* --color-bg-secondary, empty rail */
 #define C_PANEL           0x4D4D4D  /* --color-panel-background over black */
@@ -482,8 +497,8 @@ void race_dashboard_create(lv_obj_t * parent)
 
     lv_obj_t * center = lv_obj_create(parent);
     lv_obj_remove_style_all(center);
-    lv_obj_set_pos(center, 282, 45);
-    lv_obj_set_size(center, 460, 410);
+    lv_obj_set_size(center, DIAL_BOX, DIAL_BOX);
+    lv_obj_set_pos(center, 512 - DIAL_BOX / 2, 235 - DIAL_BOX / 2);
 
     lv_obj_t * right = panel(parent);
     lv_obj_set_pos(right, 797, 58);
@@ -526,28 +541,31 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_remove_style_all(speed_box);
     lv_obj_set_size(speed_box, LV_PCT(100), LV_PCT(100));
 
-    /* Place the 20 tick objects on two circular arcs.  Each rectangle is
-       tangentially rotated; this avoids the non-circular chevron made by
-       positioning the ticks along two straight lines. */
-    for(uint8_t i = 0; i < WING_SEGMENTS; i++) {
-        float left_angle = (135.0f + i * 10.0f) * DEG_TO_RAD;
-        float right_angle = (45.0f - i * 10.0f) * DEG_TO_RAD;
-        float angles[2] = { left_angle, right_angle };
+    /* Place the tick pairs around the two wings.  Each tick is rotated so its
+       long axis points at the centre of the dial. */
+    const float cx = DIAL_BOX / 2.0f, cy = DIAL_BOX / 2.0f;
+    for(uint8_t k = 0; k < WING_SEGMENTS; k++) {
+        float bearing[2] = { WING_LEFT_BASE + k * TICK_PITCH_DEG,
+                             WING_RIGHT_BASE - k * TICK_PITCH_DEG };
         for(uint8_t side = 0; side < 2; side++) {
-            uint8_t index = side == 0 ? i : WING_SEGMENTS + i;
-            float a = angles[side];
-            dash.wing[index] = lv_obj_create(speed_box);
-            lv_obj_remove_style_all(dash.wing[index]);
-            lv_obj_set_size(dash.wing[index], 16, 32);
-            lv_obj_set_pos(dash.wing[index],
-                           (lv_coord_t)lroundf(230.0f + 200.0f * cosf(a) - 8.0f),
-                           (lv_coord_t)lroundf(205.0f + 200.0f * sinf(a) - 16.0f));
-            lv_obj_set_style_bg_color(dash.wing[index], lv_color_hex(C_GRAY), 0);
-            lv_obj_set_style_bg_opa(dash.wing[index], LV_OPA_COVER, 0);
-            lv_obj_set_style_transform_angle(dash.wing[index],
-                                             (int32_t)lroundf((a / DEG_TO_RAD + 90.0f) * 10.0f), 0);
-            lv_obj_set_style_transform_width(dash.wing[index], 6, 0);
-            lv_obj_set_style_transform_height(dash.wing[index], 6, 0);
+            uint8_t index = side * WING_SEGMENTS + k;
+            float a = bearing[side] * DEG_TO_RAD;
+            lv_obj_t * tick = lv_obj_create(speed_box);
+            dash.wing[index] = tick;
+            lv_obj_remove_style_all(tick);
+            lv_obj_set_size(tick, TICK_W, DIAL_BAND);
+            lv_obj_set_pos(tick,
+                           (lv_coord_t)lroundf(cx + DIAL_MID_R * cosf(a)) - TICK_W / 2,
+                           (lv_coord_t)lroundf(cy + DIAL_MID_R * sinf(a)) - DIAL_BAND / 2);
+            lv_obj_set_style_bg_color(tick, lv_color_hex(C_GRAY), 0);
+            lv_obj_set_style_bg_opa(tick, LV_OPA_COVER, 0);
+            /* Spin each tick about its own middle.  The default pivot is the
+               top-left corner, which swings every tick off the circle by a
+               different amount and leaves the band lumpy and off-centre. */
+            lv_obj_set_style_transform_pivot_x(tick, TICK_W / 2, 0);
+            lv_obj_set_style_transform_pivot_y(tick, DIAL_BAND / 2, 0);
+            lv_obj_set_style_transform_rotation(tick,
+                                                (int32_t)lroundf((bearing[side] + 90.0f) * 10.0f), 0);
         }
     }
 
@@ -557,9 +575,9 @@ void race_dashboard_create(lv_obj_t * parent)
     for(uint8_t i = 0; i < 2; i++) {
         dash.ring[i] = lv_arc_create(speed_box);
         lv_obj_remove_style_all(dash.ring[i]);
-        lv_obj_set_size(dash.ring[i], 432, 432);
+        lv_obj_set_size(dash.ring[i], DIAL_BOX, DIAL_BOX);
         lv_obj_align(dash.ring[i], LV_ALIGN_CENTER, 0, 0);
-        lv_obj_set_style_arc_width(dash.ring[i], 32, LV_PART_MAIN);
+        lv_obj_set_style_arc_width(dash.ring[i], DIAL_BAND, LV_PART_MAIN);
         lv_arc_set_bg_angles(dash.ring[i], ring_span[i][0], ring_span[i][1]);
         lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_CLICKABLE);
         lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);

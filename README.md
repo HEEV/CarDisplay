@@ -6,6 +6,16 @@
 Host Simulation program to preview and prepare a system natively, without the use of a RasPi 5. 
 Based on LVGL Linux Port, reqiures GCC and SDL for Host rendering.
 
+Prerequisites:
+
+``` shell
+# Debian / Ubuntu
+sudo apt install build-essential cmake libsdl2-dev
+
+# macOS (Apple Silicon and Intel both work; builds with AppleClang)
+brew install cmake sdl2
+```
+
 Compilation command:
 ``` shell 
 mkdir build

@@ -60,6 +60,16 @@ typedef enum { SEG_COAST, SEG_BURN } segment_type_t;
 typedef struct { float end_ft; segment_type_t type; } strategy_point_t;
 /* A rendered bar segment records a width as a percentage of one lap. */
 typedef struct { float pct; segment_type_t type; } progress_segment_t;
+/* Where the burn/coast countdown has got to.  The browser build ran this as
+   a chain of sleeps; here it is a timer whose period changes per phase. */
+typedef enum {
+    SEQ_IDLE,
+    SEQ_BURN_COUNTDOWN,
+    SEQ_BURN_HOLD,
+    SEQ_COAST_COUNTDOWN,
+    SEQ_COAST_HOLD,
+} sequence_phase_t;
+
 /* All object handles and persistent telemetry/race state for this one screen. */
 typedef struct {
     lv_obj_t * root;
@@ -73,6 +83,8 @@ typedef struct {
     lv_obj_t * lap_label;
     lv_obj_t * marker;
     lv_obj_t * wing[WING_SEGMENTS * 2];
+    lv_obj_t * ring[2];
+    lv_obj_t * engine_call;
     lv_obj_t * current_live;
     lv_obj_t * current_sim;
     lv_obj_t * full_live[TRACK_LAPS];
@@ -85,9 +97,10 @@ typedef struct {
     progress_segment_t live[TRACK_LAPS][MAX_LIVE_SEGMENTS];
     uint8_t live_count[TRACK_LAPS];
     lv_timer_t * sequence_timer;
-    uint16_t sequence_step;
-    uint16_t burn_steps;
-    uint16_t coast_steps;
+    sequence_phase_t sequence_phase;
+    uint8_t sequence_step;
+    uint32_t burn_step_ms;
+    uint32_t coast_step_ms;
 } dashboard_t;
 
 /* Single dashboard instance; this port intentionally exposes one full-screen UI. */
@@ -348,6 +361,106 @@ static void set_status(lv_obj_t * pill, bool value, bool valid)
     lv_obj_set_style_bg_color(pill, lv_color_hex(fill), 0);
 }
 
+/* How long the solid ring stays up once the countdown reaches the driver's
+   cue, matching the browser build's five second hold. */
+#define SEQUENCE_HOLD_MS 5000
+
+/* Repaint every wing tick in one colour. */
+static void set_all_wings(uint32_t rgb)
+{
+    for(uint8_t i = 0; i < WING_SEGMENTS * 2; i++)
+        lv_obj_set_style_bg_color(dash.wing[i], lv_color_hex(rgb), 0);
+}
+
+/* Repaint the matching pair of ticks, one on each wing.  Position 0 is the
+   bottom of a wing and WING_SEGMENTS-1 the top, which is the order the
+   browser build counted down in. */
+static void set_wing_pair(uint8_t position, uint32_t rgb)
+{
+    lv_obj_set_style_bg_color(dash.wing[position], lv_color_hex(rgb), 0);
+    lv_obj_set_style_bg_color(dash.wing[WING_SEGMENTS + position], lv_color_hex(rgb), 0);
+}
+
+/* Swap the segmented wings for the pair of solid arcs that mark the moment
+   the driver should act on the engine, or swap them back. */
+static void show_call_to_act(bool solid, uint32_t rgb, const char * text)
+{
+    for(uint8_t i = 0; i < WING_SEGMENTS * 2; i++) {
+        if(solid) lv_obj_add_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_remove_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for(uint8_t i = 0; i < 2; i++) {
+        lv_obj_set_style_arc_color(dash.ring[i], lv_color_hex(rgb), LV_PART_MAIN);
+        if(solid) lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    if(solid) {
+        lv_label_set_text(dash.engine_call, text);
+        lv_obj_set_style_text_color(dash.engine_call, lv_color_hex(rgb), 0);
+        lv_obj_remove_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+    }
+    else lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+}
+
+/* Advance the countdown one step.  Each phase sets the period for the next. */
+static void sequence_tick(lv_timer_t * timer)
+{
+    switch(dash.sequence_phase) {
+        case SEQ_BURN_COUNTDOWN:
+            set_wing_pair(dash.sequence_step, C_GREEN_HIGHLIGHT);
+            if(++dash.sequence_step >= WING_SEGMENTS) {
+                dash.sequence_phase = SEQ_BURN_HOLD;
+                show_call_to_act(true, C_GREEN_HIGHLIGHT, "ENGINE ON");
+                lv_timer_set_period(timer, SEQUENCE_HOLD_MS);
+            }
+            break;
+
+        case SEQ_BURN_HOLD:
+            show_call_to_act(false, 0, NULL);
+            dash.sequence_phase = SEQ_COAST_COUNTDOWN;
+            dash.sequence_step = 0;
+            lv_timer_set_period(timer, dash.coast_step_ms);
+            break;
+
+        case SEQ_COAST_COUNTDOWN:
+            /* Counts down from the top of the wings, the opposite way round
+               from the burn countdown. */
+            set_wing_pair(WING_SEGMENTS - 1 - dash.sequence_step, C_ALERT);
+            if(++dash.sequence_step >= WING_SEGMENTS) {
+                dash.sequence_phase = SEQ_COAST_HOLD;
+                show_call_to_act(true, C_ALERT, "ENGINE OFF");
+                lv_timer_set_period(timer, SEQUENCE_HOLD_MS);
+            }
+            break;
+
+        case SEQ_COAST_HOLD:
+        default:
+            show_call_to_act(false, 0, NULL);
+            set_all_wings(C_GRAY);
+            dash.sequence_phase = SEQ_IDLE;
+            dash.sequence_timer = NULL;
+            lv_timer_delete(timer);
+            break;
+    }
+}
+
+void race_dashboard_start_sequence(uint32_t burn_ms, uint32_t coast_ms)
+{
+    if(!dash.root || dash.sequence_timer) return;
+
+    /* The browser build divided the countdown by one less than the number of
+       ticks, so the last tick lands as the countdown expires. */
+    dash.burn_step_ms = LV_MAX(1, burn_ms / (WING_SEGMENTS - 1));
+    dash.coast_step_ms = LV_MAX(1, coast_ms / (WING_SEGMENTS - 1));
+    dash.sequence_phase = SEQ_BURN_COUNTDOWN;
+    dash.sequence_step = 0;
+    set_all_wings(C_GRAY);
+    show_call_to_act(false, 0, NULL);
+
+    dash.sequence_timer = lv_timer_create(sequence_tick, dash.burn_step_ms, NULL);
+    lv_timer_ready(dash.sequence_timer);
+}
+
 /* Construct every screen object once. Call only after LVGL/display initialization. */
 void race_dashboard_create(lv_obj_t * parent)
 {
@@ -438,11 +551,29 @@ void race_dashboard_create(lv_obj_t * parent)
         }
     }
 
+    /* The same two wings again, but solid.  These stand in for the ticks
+       while the countdown is telling the driver to act, then hide again. */
+    static const int32_t ring_span[2][2] = { { 135, 225 }, { 315, 45 } };
+    for(uint8_t i = 0; i < 2; i++) {
+        dash.ring[i] = lv_arc_create(speed_box);
+        lv_obj_remove_style_all(dash.ring[i]);
+        lv_obj_set_size(dash.ring[i], 432, 432);
+        lv_obj_align(dash.ring[i], LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_arc_width(dash.ring[i], 32, LV_PART_MAIN);
+        lv_arc_set_bg_angles(dash.ring[i], ring_span[i][0], ring_span[i][1]);
+        lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+    }
+
     dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_224);
     lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, -16);
 
     lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
     lv_obj_align(mph, LV_ALIGN_CENTER, 0, 120);
+
+    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &lv_font_montserrat_40);
+    lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, -140);
+    lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
     dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);

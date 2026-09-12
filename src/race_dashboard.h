@@ -11,7 +11,9 @@ typedef struct {
     float voltage_v;
     bool voltage_valid;
     bool engine_armed;
+    bool engine_armed_valid;
     bool engine_on;
+    bool engine_on_valid;
     bool timer_reset;
 } race_telemetry_t;
 

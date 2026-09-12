@@ -51,7 +51,9 @@ race_telemetry_t t = {
     .voltage_v = 27.8f,
     .voltage_valid = true,
     .engine_armed = true,
+    .engine_armed_valid = true,
     .engine_on = true,
+    .engine_on_valid = true,
    };
 
 int main(int argc, char **argv)

@@ -304,6 +304,14 @@ static void make_status(lv_obj_t * parent, const char * text, lv_obj_t ** target
     lv_obj_set_style_text_align(*target, LV_TEXT_ALIGN_CENTER, 0);
 }
 
+/* Colour a status pill.  A field the car has not reported is shown as
+   unknown rather than being quietly reported as off. */
+static void set_status(lv_obj_t * pill, bool value, bool valid)
+{
+    uint32_t fill = !valid ? C_ICON_UNKNOWN : (value ? C_ICON_ON : C_ICON_OFF);
+    lv_obj_set_style_bg_color(pill, lv_color_hex(fill), 0);
+}
+
 /* Construct every screen object once. Call only after LVGL/display initialization. */
 void race_dashboard_create(lv_obj_t * parent)
 {
@@ -446,10 +454,11 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
         lv_label_set_text(dash.voltage_value, buf);
     } else lv_label_set_text(dash.voltage_value, "--");
 
-    lv_obj_set_style_bg_color(dash.armed, lv_color_hex(t->engine_armed ? C_ICON_ON : C_ICON_OFF), 0);
+    set_status(dash.armed, t->engine_armed, t->engine_armed_valid);
+    set_status(dash.running, t->engine_on, t->engine_on_valid);
 
-    lv_obj_set_style_bg_color(dash.running, lv_color_hex(t->engine_on ? C_ICON_ON : C_ICON_OFF), 0);
-    segment_type_t status = t->engine_on ? SEG_BURN : SEG_COAST;
+    /* An unreported engine counts as coasting, matching the browser build. */
+    segment_type_t status = (t->engine_on_valid && t->engine_on) ? SEG_BURN : SEG_COAST;
 
     /* Restart on the press, not for as long as the button is held down. */
     if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);

@@ -19,7 +19,6 @@
   #include <unistd.h>
   #include <pthread.h>
 #endif
-#include <sys/time.h>
 #include "../lvgl/lvgl.h"
 #include <SDL.h>
 
@@ -35,7 +34,7 @@
 
 
 #include "race_dashboard.h"
-struct timeval old;
+
 race_telemetry_t t = {
     .speed_mph = 0.0f,
     .airspeed_mph = 8.1f,

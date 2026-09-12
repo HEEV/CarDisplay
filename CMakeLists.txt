@@ -102,13 +102,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     target_compile_options(lvgl PRIVATE
         -pedantic-errors
         -Wall
-        -Wclobbered
         -Wdeprecated
         -Wdouble-promotion
         -Wempty-body
         -Wextra
         -Wformat-security
-        -Wmaybe-uninitialized
         # -Wmissing-prototypes
         -Wpointer-arith
         -Wmultichar
@@ -124,6 +122,11 @@ if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         -Wfloat-conversion
         -Wstrict-aliasing
     )
+
+    # GCC-only diagnostics; clang (the default on macOS) does not know them.
+    if(CMAKE_C_COMPILER_ID STREQUAL "GNU")
+        target_compile_options(lvgl PRIVATE -Wclobbered -Wmaybe-uninitialized)
+    endif()
 
 if (ASAN)
     message(STATUS "AddressSanitizer enabled")

@@ -35,6 +35,15 @@
 
 #include "race_dashboard.h"
 
+static void sleep_ms(uint32_t ms)
+{
+#ifdef _MSC_VER
+  Sleep(ms);
+#else
+  usleep(ms * 1000);
+#endif
+}
+
 race_telemetry_t t = {
     .speed_mph = 0.0f,
     .airspeed_mph = 8.1f,
@@ -64,6 +73,7 @@ int main(int argc, char **argv)
     if(sleep_time_ms == LV_NO_TIMER_READY){
 	    sleep_time_ms = LV_DEF_REFR_PERIOD;
     }
+    sleep_ms(sleep_time_ms);
 
     t.distance_ft += 1;
     race_dashboard_set_telemetry(&t);

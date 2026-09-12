@@ -8,16 +8,44 @@
 #define WING_SEGMENTS 10
 #define MAX_LIVE_SEGMENTS 16
 
-#define C_BG       0x000000
-#define C_PANEL    0x4D4D4D
-#define C_TEXT     0xE8EEF2
-#define C_MUTED    0x87939E
-#define C_TECH     0x00B8D4
-#define C_GREEN    0x10D66D
-#define C_RED      0xF04438
-#define C_GRAY     0xC8C8C8
-#define C_BLUE     0x167CEB
-#define C_ORANGE   0xFF8A00
+/* Palette lifted from the browser build's colors.css so the two front ends
+   agree.  Translucent CSS values are pre-composited against whatever sits
+   behind them: a panel is white at 30 percent over black, and a panel border
+   is white at 10 percent over the panel. */
+/* Rail geometry.  The widths are fixed by the layout below; segments need
+   them in pixels because a rail is usually only partly filled, so a
+   percentage width would stretch the segments across the whole rail.
+   RAIL_FULL_W is the drawable width of the bottom panel, and the four lap
+   cells divide it evenly with RAIL_LAP_GAP between them. */
+#define RAIL_INSET       4    /* one pixel of border and one of padding, both sides */
+#define RAIL_FULL_W    994
+#define RAIL_LAP_W     244
+#define RAIL_LAP_STRIDE 250
+
+#define C_BG              0x000000  /* --color-bg */
+#define C_BG_SECONDARY    0x121212  /* --color-bg-secondary, empty rail */
+#define C_PANEL           0x4D4D4D  /* --color-panel-background over black */
+#define C_PANEL_BORDER    0x5F5F5F  /* --color-border-gray over a panel */
+#define C_TEXT            0xFFFFFF  /* --color-text */
+#define C_LABEL           0x61CBF4  /* --color-text-secondary, panel headings */
+#define C_TECH            0x00A8FF  /* --color-tech, track marker */
+#define C_GRAY            0xB4B4B4  /* --color-gray */
+#define C_GREEN_HIGHLIGHT 0x00FF88  /* --color-green-highlight */
+#define C_ALERT           0xFF0000  /* --color-alert */
+
+/* Strategy rail fills.  Burn and coast each have a lived and a planned
+   colour, and the pairs are deliberately unalike so the driver can tell the
+   two rails apart at a glance. */
+#define C_LIVE_COAST      0x00E060  /* --color-position-real */
+#define C_LIVE_BURN       0xFFD500  /* --color-gas-real */
+#define C_PLANNED_COAST   0x007BFF  /* --color-position-sim */
+#define C_PLANNED_BURN    0xFF8C00  /* --color-gas-sim */
+
+/* Engine status pills.  Unknown is a distinct third state, not a stand-in
+   for off. */
+#define C_ICON_ON         0x00A338  /* --color-icon-on */
+#define C_ICON_OFF        0xC00000  /* --color-icon-off */
+#define C_ICON_UNKNOWN    0xB4B4B4  /* --color-icon-disabled */
 #define DEG_TO_RAD 0.01745329251994329577f
 
 /* Montserrat digits at the size the browser build used for the speed readout
@@ -51,6 +79,7 @@ typedef struct {
     float previous_distance_ft;
     bool reset_was_pressed;
     bool has_distance;
+    bool race_complete;
     segment_type_t previous_status;
     progress_segment_t live[TRACK_LAPS][MAX_LIVE_SEGMENTS];
     uint8_t live_count[TRACK_LAPS];
@@ -68,6 +97,7 @@ static const strategy_point_t simulation[] = {
     { 3000, SEG_COAST }, { 5500, SEG_BURN }, { 8500, SEG_COAST },
     {10800, SEG_BURN }, {12621, SEG_COAST },
 };
+#define SIMULATION_POINTS (sizeof(simulation) / sizeof(simulation[0]))
 
 /* User-supplied ShellTrackFixed samples, decimated only along straight runs.
    They are scaled once into the 225 x 120 px map viewport at startup. */
@@ -96,13 +126,13 @@ static void prepare_track_points(void)
 /* Choose the live-race color for a burn or coast state. */
 static lv_color_t color(segment_type_t status)
 {
-    return lv_color_hex(status == SEG_BURN ? C_GREEN : C_RED);
+    return lv_color_hex(status == SEG_BURN ? C_LIVE_BURN : C_LIVE_COAST);
 }
 
 /* Choose the planned-strategy color for a burn or coast state. */
 static lv_color_t simulation_color(segment_type_t status)
 {
-    return lv_color_hex(status == SEG_BURN ? C_ORANGE : C_BLUE);
+    return lv_color_hex(status == SEG_BURN ? C_PLANNED_BURN : C_PLANNED_COAST);
 }
 
 /* Create a label with the shared dashboard typography setup. */
@@ -125,12 +155,14 @@ static lv_obj_t * panel(lv_obj_t * parent)
     lv_obj_set_style_radius(p, 16, 0);
     lv_obj_set_style_pad_all(p, 10, 0);
     lv_obj_set_style_border_width(p, 1, 0);
-    lv_obj_set_style_border_color(p, lv_color_hex(0x696969), 0);
+    lv_obj_set_style_border_color(p, lv_color_hex(C_PANEL_BORDER), 0);
     return p;
 }
 
-/* Rebuild a progress rail from its current segment list. */
-static void populate_progress(lv_obj_t * host, const progress_segment_t * segments, uint8_t count, bool simulated)
+/* Rebuild a progress rail from its current segment list.  content_width is
+   the drawable width of the rail in pixels. */
+static void populate_progress(lv_obj_t * host, const progress_segment_t * segments, uint8_t count,
+                              bool simulated, lv_coord_t content_width)
 {
     lv_obj_clean(host);
     lv_obj_set_layout(host, LV_LAYOUT_FLEX);
@@ -138,14 +170,13 @@ static void populate_progress(lv_obj_t * host, const progress_segment_t * segmen
     lv_obj_set_flex_align(host, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     for(uint8_t i = 0; i < count; i++) {
         if(segments[i].pct <= 0.0f) continue;
+        lv_coord_t w = (lv_coord_t)lroundf(segments[i].pct * content_width / 100.0f);
+        if(w <= 0) continue;
         lv_obj_t * item = lv_obj_create(host);
         lv_obj_remove_style_all(item);
-        lv_obj_set_height(item, LV_PCT(100));
-        lv_obj_set_flex_grow(item, (uint8_t)LV_MAX(1, (int)(segments[i].pct * 10.0f)));
+        lv_obj_set_size(item, w, LV_PCT(100));
         lv_obj_set_style_bg_color(item, simulated ? simulation_color(segments[i].type) : color(segments[i].type), 0);
         lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(item, 1, 0);
-        lv_obj_set_style_border_color(item, lv_color_hex(C_BG), 0);
     }
 }
 
@@ -157,7 +188,7 @@ static lv_obj_t * progress_host(lv_obj_t * parent, lv_coord_t x, lv_coord_t y,
     lv_obj_remove_style_all(host);
     lv_obj_set_pos(host, x, y);
     lv_obj_set_size(host, width, height);
-    lv_obj_set_style_bg_color(host, lv_color_hex(C_BG), 0);
+    lv_obj_set_style_bg_color(host, lv_color_hex(C_BG_SECONDARY), 0);
     lv_obj_set_style_bg_opa(host, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(host, lv_color_hex(C_GRAY), 0);
     lv_obj_set_style_border_width(host, 1, 0);
@@ -174,40 +205,29 @@ static void refresh_progress(void)
         lap = (uint8_t)LV_MIN((int)(adjusted / TRACK_LENGTH_FT), TRACK_LAPS - 1);
     }
 
-    // Update Current Progress
-    lv_obj_clean(dash.current_live);
-    lv_obj_t * current = lv_obj_create(dash.current_live);
-    lv_obj_remove_style_all(current);
-    lv_obj_set_height(current, LV_PCT(100));
-    int pct = (((float)dash.previous_distance_ft/TRACK_LENGTH_FT) - lap) * 100;
-    lv_obj_set_width(current, LV_PCT(pct));
-    lv_obj_set_style_bg_color(current, lv_color_hex(C_GREEN), 0);
-    lv_obj_set_style_bg_opa(current, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(current, 1, 0);
-    lv_obj_set_style_border_color(current, lv_color_hex(C_BG), 0);
+    /* Top rail: the lap being driven right now, at full width. */
+    populate_progress(dash.current_live, dash.live[lap], dash.live_count[lap],
+                      false, RAIL_FULL_W - RAIL_INSET);
 
-    // Update Race progress
-    lv_obj_clean(dash.full_live[lap]);
-    lv_obj_t * item = lv_obj_create(dash.full_live[lap]);
-    lv_obj_remove_style_all(item);
-    lv_obj_set_height(item, LV_PCT(100));
-    int pct2 = (((float)dash.previous_distance_ft/TRACK_LENGTH_FT) - lap) * 100;
-    lv_obj_set_width(item, LV_PCT(pct2));
-    lv_obj_set_style_bg_color(item, lv_color_hex(C_GREEN), 0);
-    lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(item, 1, 0);
-    lv_obj_set_style_border_color(item, lv_color_hex(C_BG), 0);
+    /* Bottom row: every lap of the race, each in its own quarter-width cell. */
+    for(uint8_t i = 0; i < TRACK_LAPS; i++) {
+        populate_progress(dash.full_live[i], dash.live[i], dash.live_count[i],
+                          false, RAIL_LAP_W - RAIL_INSET);
+    }
+}
 
-
-    // Update Simulation Progress
-    progress_segment_t sim[5];
+/* Draw the planned strategy rail.  The plan does not change during a race,
+   so this runs once at startup rather than on every telemetry sample. */
+static void build_planned_rail(void)
+{
+    progress_segment_t planned[SIMULATION_POINTS];
     float start = 0.0f;
-    for(uint8_t i = 0; i < 5; i++) {
-        sim[i].pct = (simulation[i].end_ft - start) * 100.0f / TRACK_LENGTH_FT;
-        sim[i].type = simulation[i].type;
+    for(uint8_t i = 0; i < SIMULATION_POINTS; i++) {
+        planned[i].pct = (simulation[i].end_ft - start) * 100.0f / TRACK_LENGTH_FT;
+        planned[i].type = simulation[i].type;
         start = simulation[i].end_ft;
     }
-    populate_progress(dash.current_sim, sim, 5, true);
+    populate_progress(dash.current_sim, planned, SIMULATION_POINTS, true, RAIL_FULL_W - RAIL_INSET);
 }
 
 /* Start a new race at the supplied odometer value and clear live history. */
@@ -216,6 +236,7 @@ static void reset_race(float distance, segment_type_t status)
     dash.offset_ft = distance;
     dash.previous_distance_ft = distance;
     dash.has_distance = true;
+    dash.race_complete = false;
     dash.previous_status = status;
     memset(dash.live_count, 0, sizeof(dash.live_count));
     dash.live_count[0] = 1;
@@ -247,6 +268,7 @@ static void update_track(float distance)
 static void append_live(float distance, segment_type_t status)
 {
     if(!dash.has_distance) { reset_race(distance, status); return; }
+    if(dash.race_complete) return;
     float adjusted = LV_MAX(0.0f, distance - dash.offset_ft);
     float previous = LV_MAX(0.0f, dash.previous_distance_ft - dash.offset_ft);
     uint8_t lap = (uint8_t)LV_MIN((int)(adjusted / TRACK_LENGTH_FT), TRACK_LAPS - 1);
@@ -263,6 +285,9 @@ static void append_live(float distance, segment_type_t status)
     if(delta_pct > 0 && dash.live_count[lap])
         dash.live[lap][dash.live_count[lap] - 1].pct += delta_pct;
     dash.previous_distance_ft = distance;
+    /* Freeze the rails once the final lap is done so the last segment stops
+       growing past the end of the race. */
+    if(adjusted >= TRACK_LENGTH_FT * TRACK_LAPS) dash.race_complete = true;
     refresh_progress();
 }
 
@@ -272,7 +297,7 @@ static void make_status(lv_obj_t * parent, const char * text, lv_obj_t ** target
 {
     *target = make_label(parent, text, lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_set_width(*target, LV_PCT(100));
-    lv_obj_set_style_bg_color(*target, lv_color_hex(C_GRAY), 0);
+    lv_obj_set_style_bg_color(*target, lv_color_hex(C_ICON_UNKNOWN), 0);
     lv_obj_set_style_bg_opa(*target, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(*target, 8, 0);
     lv_obj_set_style_pad_ver(*target, 7, 0);
@@ -312,8 +337,8 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_set_size(right_status, 192, 164);
 
     lv_obj_t * bottom = panel(parent);
-    lv_obj_set_pos(bottom, 4, 477);
-    lv_obj_set_size(bottom, 1016, 119);
+    lv_obj_set_pos(bottom, 4, 470);
+    lv_obj_set_size(bottom, 1016, 126);
 
     dash.lap_label = make_label(left, "Current Lap: 1", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_align(dash.lap_label, LV_ALIGN_TOP_MID, 0, 0);
@@ -331,7 +356,7 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_set_style_bg_opa(dash.marker, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(dash.marker, LV_RADIUS_CIRCLE, 0);
 
-    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_TECH), &lv_font_montserrat_16);
+    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_LABEL), &lv_font_montserrat_16);
     lv_obj_align(voltage_title, LV_ALIGN_TOP_MID, 0, 20);
 
     dash.voltage_value = make_label(left_voltage, "--", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
@@ -375,7 +400,7 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
     lv_obj_align(mph, LV_ALIGN_CENTER, 0, 120);
 
-    lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_TECH), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
     dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
     lv_obj_align(dash.wind, LV_ALIGN_CENTER, 0, 5);
 
@@ -385,7 +410,7 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_t * wind_units = make_label(right, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_align(wind_units, LV_ALIGN_BOTTOM_MID, 0, -17);
 
-    lv_obj_t * stitle = make_label(right_status, "ENGINE STATUS", lv_color_hex(C_TECH), &lv_font_montserrat_16);
+    lv_obj_t * stitle = make_label(right_status, "ENGINE STATUS", lv_color_hex(C_LABEL), &lv_font_montserrat_16);
     lv_obj_align(stitle, LV_ALIGN_TOP_MID, 0, 18);
 
     make_status(right_status, "Armed", &dash.armed);
@@ -394,9 +419,10 @@ void race_dashboard_create(lv_obj_t * parent)
     make_status(right_status, "Running", &dash.running);
     lv_obj_align(dash.running, LV_ALIGN_TOP_MID, 0, 108);
 
-    dash.current_live = progress_host(bottom, 18, 10, 980, 34);
-    dash.current_sim = progress_host(bottom, 18, 48, 980, 34);
-    for(uint8_t i = 0; i < TRACK_LAPS; i++) dash.full_live[i] = progress_host(bottom, 18 + i * 245, 87, 240, 22);
+    dash.current_live = progress_host(bottom, 0, 0, RAIL_FULL_W, 34);
+    dash.current_sim = progress_host(bottom, 0, 38, RAIL_FULL_W, 34);
+    for(uint8_t i = 0; i < TRACK_LAPS; i++) dash.full_live[i] = progress_host(bottom, i * RAIL_LAP_STRIDE, 80, RAIL_LAP_W, 22);
+    build_planned_rail();
     reset_race(0, SEG_COAST);
     update_track(0);
 }
@@ -420,9 +446,9 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
         lv_label_set_text(dash.voltage_value, buf);
     } else lv_label_set_text(dash.voltage_value, "--");
 
-    lv_obj_set_style_bg_color(dash.armed, lv_color_hex(t->engine_armed ? C_GREEN : C_RED), 0);
+    lv_obj_set_style_bg_color(dash.armed, lv_color_hex(t->engine_armed ? C_ICON_ON : C_ICON_OFF), 0);
 
-    lv_obj_set_style_bg_color(dash.running, lv_color_hex(t->engine_on ? C_GREEN : C_RED), 0);
+    lv_obj_set_style_bg_color(dash.running, lv_color_hex(t->engine_on ? C_ICON_ON : C_ICON_OFF), 0);
     segment_type_t status = t->engine_on ? SEG_BURN : SEG_COAST;
 
     //if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);

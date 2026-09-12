@@ -12,15 +12,42 @@
    agree.  Translucent CSS values are pre-composited against whatever sits
    behind them: a panel is white at 30 percent over black, and a panel border
    is white at 10 percent over the panel. */
-/* Rail geometry.  The widths are fixed by the layout below; segments need
-   them in pixels because a rail is usually only partly filled, so a
-   percentage width would stretch the segments across the whole rail.
-   RAIL_FULL_W is the drawable width of the bottom panel, and the four lap
-   cells divide it evenly with RAIL_LAP_GAP between them. */
+/* Screen layout.  Everything is derived from the panel size and a single
+   margin so the two side columns stay mirror images of each other and the
+   upper half stays centred on the dial. */
+#define SCREEN_W       1024
+#define SCREEN_H        600
+#define EDGE             36
+#define COL_W           228
+#define COL_LEFT_X     EDGE
+#define COL_RIGHT_X    (SCREEN_W - EDGE - COL_W)
+#define CARD_TOP_H      195
+#define CARD_BOTTOM_H   164
+#define CARD_GAP         24
+#define COLUMN_H        (CARD_TOP_H + CARD_GAP + CARD_BOTTOM_H)
+/* A card's one pixel border plus its ten pixels of padding, both sides. */
+#define CARD_INSET       22
+
+#define BOTTOM_H        126
+#define BOTTOM_W       1016
+#define BOTTOM_Y       (SCREEN_H - 4 - BOTTOM_H)
+
+/* Rail geometry.  Segments need widths in pixels because a rail is usually
+   only partly filled, and a percentage width would stretch them across the
+   whole rail.  The rails span the drawable width of the strategy panel and
+   the four lap cells divide that evenly, so widening the panel widens the
+   rails with it instead of leaving them overhanging one edge. */
 #define RAIL_INSET       4    /* one pixel of border and one of padding, both sides */
-#define RAIL_FULL_W    994
-#define RAIL_LAP_W     244
-#define RAIL_LAP_STRIDE 250
+#define RAIL_FULL_W     (BOTTOM_W - CARD_INSET)
+#define RAIL_LAP_STRIDE (RAIL_FULL_W / TRACK_LAPS)
+#define RAIL_LAP_GAP     6
+#define RAIL_LAP_W      (RAIL_LAP_STRIDE - RAIL_LAP_GAP)
+
+/* Middle of the space left above the strategy panel. */
+#define DIAL_CX        (SCREEN_W / 2)
+#define DIAL_CY        (BOTTOM_Y / 2)
+#define CARD_TOP_Y     (DIAL_CY - COLUMN_H / 2)
+#define CARD_BOTTOM_Y  (CARD_TOP_Y + CARD_TOP_H + CARD_GAP)
 
 /* Dial geometry, taken from the browser build's stylesheet.  Ticks sit in a
    band between radius 195 and 225, each five degrees wide on a nine degree
@@ -481,36 +508,39 @@ void race_dashboard_create(lv_obj_t * parent)
 {
     memset(&dash, 0, sizeof(dash));
     dash.root = parent;
-    lv_obj_set_size(parent, 1024, 600);
+    lv_obj_set_size(parent, SCREEN_W, SCREEN_H);
     lv_obj_set_style_bg_color(parent, lv_color_hex(C_BG), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
 
-    /* Reference layout: four compact side cards, an unboxed central speedometer,
-       and a full-width, three-rail strategy panel. */
+    /* Reference layout: a column of cards down each side, an unboxed central
+       speedometer, and a full-width strategy panel along the bottom.  The two
+       columns are the same width and sit at the same heights, and the space
+       above the strategy panel is centred on DIAL_CY, so the whole upper half
+       reads as symmetric about the middle of the dial. */
     lv_obj_t * left = panel(parent);
-    lv_obj_set_pos(left, 36, 58);
-    lv_obj_set_size(left, 228, 195);
+    lv_obj_set_pos(left, COL_LEFT_X, CARD_TOP_Y);
+    lv_obj_set_size(left, COL_W, CARD_TOP_H);
 
     lv_obj_t * left_voltage = panel(parent);
-    lv_obj_set_pos(left_voltage, 36, 277);
-    lv_obj_set_size(left_voltage, 228, 164);
+    lv_obj_set_pos(left_voltage, COL_LEFT_X, CARD_BOTTOM_Y);
+    lv_obj_set_size(left_voltage, COL_W, CARD_BOTTOM_H);
 
     lv_obj_t * center = lv_obj_create(parent);
     lv_obj_remove_style_all(center);
     lv_obj_set_size(center, DIAL_BOX, DIAL_BOX);
-    lv_obj_set_pos(center, 512 - DIAL_BOX / 2, 235 - DIAL_BOX / 2);
+    lv_obj_set_pos(center, DIAL_CX - DIAL_BOX / 2, DIAL_CY - DIAL_BOX / 2);
 
     lv_obj_t * right = panel(parent);
-    lv_obj_set_pos(right, 797, 58);
-    lv_obj_set_size(right, 192, 175);
+    lv_obj_set_pos(right, COL_RIGHT_X, CARD_TOP_Y);
+    lv_obj_set_size(right, COL_W, CARD_TOP_H);
 
     lv_obj_t * right_status = panel(parent);
-    lv_obj_set_pos(right_status, 797, 255);
-    lv_obj_set_size(right_status, 192, 164);
+    lv_obj_set_pos(right_status, COL_RIGHT_X, CARD_BOTTOM_Y);
+    lv_obj_set_size(right_status, COL_W, CARD_BOTTOM_H);
 
     lv_obj_t * bottom = panel(parent);
-    lv_obj_set_pos(bottom, 4, 470);
-    lv_obj_set_size(bottom, 1016, 126);
+    lv_obj_set_pos(bottom, (SCREEN_W - BOTTOM_W) / 2, BOTTOM_Y);
+    lv_obj_set_size(bottom, BOTTOM_W, BOTTOM_H);
 
     dash.lap_label = make_label(left, "Current Lap: 1", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_align(dash.lap_label, LV_ALIGN_TOP_MID, 0, 0);
@@ -583,11 +613,13 @@ void race_dashboard_create(lv_obj_t * parent)
         lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
     }
 
+    /* Centre the readout as one block: the digits, a gap, then the unit.
+       The offsets account for the digits' ink sitting low in their line box. */
     dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_224);
-    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, -16);
+    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, -24);
 
     lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
-    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 120);
+    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 93);
 
     dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &lv_font_montserrat_40);
     lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, -140);

@@ -20,6 +20,12 @@
 #define C_ORANGE   0xFF8A00
 #define DEG_TO_RAD 0.01745329251994329577f
 
+/* Montserrat digits at the size the browser build used for the speed readout
+   (14em against a 16px root).  Generated into src/fonts; see that file's header
+   for the exact command.  Rendering real glyphs at this size keeps the number
+   sharp on the 1024x600 panel; scaling up a 48px face does not. */
+LV_FONT_DECLARE(speed_digits_224);
+
 /* A race segment is either engine-off coasting or engine-on burning. */
 typedef enum { SEG_COAST, SEG_BURN } segment_type_t;
 /* A planned strategy point records where the current segment finishes. */
@@ -363,14 +369,11 @@ void race_dashboard_create(lv_obj_t * parent)
         }
     }
 
-    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
-    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, -50, -50);
-    lv_obj_set_style_transform_zoom(dash.speed_value, 650, 0);
-    lv_obj_set_style_transform_width(dash.speed_value, 80, 0);
-    lv_obj_set_style_transform_height(dash.speed_value, 80, 0);
+    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_224);
+    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, -16);
 
-    lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_20);
-    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 82);
+    lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
+    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 120);
 
     lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_TECH), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
     dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
@@ -403,7 +406,7 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
 {
     if(!t || !dash.root) return;
     char buf[32];
-    snprintf(buf, sizeof(buf), "%.1f", t->speed_mph);
+    snprintf(buf, sizeof(buf), "%d", (int)lroundf(t->speed_mph));
     lv_label_set_text(dash.speed_value, buf);
 
     snprintf(buf, sizeof(buf), "%.1f", t->airspeed_mph);

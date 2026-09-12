@@ -127,6 +127,8 @@ typedef struct {
     lv_obj_t * wing[WING_SEGMENTS * 2];
     lv_obj_t * ring[2];
     lv_obj_t * engine_call;
+    lv_obj_t * unit_label;
+    bool engine_running;
     lv_obj_t * current_live;
     lv_obj_t * current_sim;
     lv_obj_t * full_live[TRACK_LAPS];
@@ -425,8 +427,25 @@ static void set_wing_pair(uint8_t position, uint32_t rgb)
 
 /* Swap the segmented wings for the pair of solid arcs that mark the moment
    the driver should act on the engine, or swap them back. */
-static void show_call_to_act(bool solid, uint32_t rgb, const char * text)
+static void apply_dial(void)
 {
+    bool solid = false;
+    uint32_t rgb = C_GREEN_HIGHLIGHT;
+    const char * text = "";
+
+    /* A countdown cue outranks everything.  Otherwise a running engine holds
+       the dial solid for as long as it runs, and a coasting car gets the
+       plain tick band back. */
+    if(dash.sequence_phase == SEQ_BURN_HOLD) {
+        solid = true; rgb = C_GREEN_HIGHLIGHT; text = "ENGINE ON";
+    }
+    else if(dash.sequence_phase == SEQ_COAST_HOLD) {
+        solid = true; rgb = C_ALERT; text = "ENGINE OFF";
+    }
+    else if(dash.sequence_phase == SEQ_IDLE && dash.engine_running) {
+        solid = true; rgb = C_GREEN_HIGHLIGHT; text = "ENGINE ON";
+    }
+
     for(uint8_t i = 0; i < WING_SEGMENTS * 2; i++) {
         if(solid) lv_obj_add_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
         else lv_obj_remove_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
@@ -442,6 +461,11 @@ static void show_call_to_act(bool solid, uint32_t rgb, const char * text)
         lv_obj_remove_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
     }
     else lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+
+    /* Fade the speed back behind the message so the instruction reads first. */
+    lv_opa_t readout = solid ? LV_OPA_30 : LV_OPA_COVER;
+    lv_obj_set_style_opa(dash.speed_value, readout, 0);
+    lv_obj_set_style_opa(dash.unit_label, readout, 0);
 }
 
 /* Advance the countdown one step.  Each phase sets the period for the next. */
@@ -452,16 +476,16 @@ static void sequence_tick(lv_timer_t * timer)
             set_wing_pair(dash.sequence_step, C_GREEN_HIGHLIGHT);
             if(++dash.sequence_step >= WING_SEGMENTS) {
                 dash.sequence_phase = SEQ_BURN_HOLD;
-                show_call_to_act(true, C_GREEN_HIGHLIGHT, "ENGINE ON");
                 lv_timer_set_period(timer, SEQUENCE_HOLD_MS);
+                apply_dial();
             }
             break;
 
         case SEQ_BURN_HOLD:
-            show_call_to_act(false, 0, NULL);
             dash.sequence_phase = SEQ_COAST_COUNTDOWN;
             dash.sequence_step = 0;
             lv_timer_set_period(timer, dash.coast_step_ms);
+            apply_dial();
             break;
 
         case SEQ_COAST_COUNTDOWN:
@@ -470,18 +494,18 @@ static void sequence_tick(lv_timer_t * timer)
             set_wing_pair(WING_SEGMENTS - 1 - dash.sequence_step, C_ALERT);
             if(++dash.sequence_step >= WING_SEGMENTS) {
                 dash.sequence_phase = SEQ_COAST_HOLD;
-                show_call_to_act(true, C_ALERT, "ENGINE OFF");
                 lv_timer_set_period(timer, SEQUENCE_HOLD_MS);
+                apply_dial();
             }
             break;
 
         case SEQ_COAST_HOLD:
         default:
-            show_call_to_act(false, 0, NULL);
             set_all_wings(C_GRAY);
             dash.sequence_phase = SEQ_IDLE;
             dash.sequence_timer = NULL;
             lv_timer_delete(timer);
+            apply_dial();
             break;
     }
 }
@@ -497,7 +521,7 @@ void race_dashboard_start_sequence(uint32_t burn_ms, uint32_t coast_ms)
     dash.sequence_phase = SEQ_BURN_COUNTDOWN;
     dash.sequence_step = 0;
     set_all_wings(C_GRAY);
-    show_call_to_act(false, 0, NULL);
+    apply_dial();
 
     dash.sequence_timer = lv_timer_create(sequence_tick, dash.burn_step_ms, NULL);
     lv_timer_ready(dash.sequence_timer);
@@ -620,9 +644,12 @@ void race_dashboard_create(lv_obj_t * parent)
 
     lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
     lv_obj_align(mph, LV_ALIGN_CENTER, 0, 93);
+    dash.unit_label = mph;
 
-    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &lv_font_montserrat_40);
-    lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, -140);
+    /* Sits over the dimmed speed rather than above it, so nothing shifts
+       around when the dial changes state. */
+    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &lv_font_montserrat_48);
+    lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
 
     lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
@@ -685,6 +712,10 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
 
     /* An unreported engine counts as coasting, matching the browser build. */
     segment_type_t status = (t->engine_on_valid && t->engine_on) ? SEG_BURN : SEG_COAST;
+    if(dash.engine_running != (status == SEG_BURN)) {
+        dash.engine_running = (status == SEG_BURN);
+        apply_dial();
+    }
 
     /* Restart on the press, not for as long as the button is held down. */
     if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);

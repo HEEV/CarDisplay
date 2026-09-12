@@ -68,6 +68,7 @@ typedef struct {
     lv_obj_t * armed;
     lv_obj_t * running;
     lv_obj_t * wind;
+    lv_obj_t * wind_arrow;
     lv_obj_t * relative;
     lv_obj_t * lap_label;
     lv_obj_t * marker;
@@ -304,6 +305,41 @@ static void make_status(lv_obj_t * parent, const char * text, lv_obj_t ** target
     lv_obj_set_style_text_align(*target, LV_TEXT_ALIGN_CENTER, 0);
 }
 
+/* The headwind arrow, drawn as a stroked polyline so it can point in any
+   direction.  The car has no wind vane yet, so the browser dashboard fixed
+   the direction at a pure headwind and this does the same. */
+#define WIND_ARROW_BOX  32
+#define WIND_ARROW_ARM  9.33f
+#define WIND_DIRECTION_DEG 180.0f
+static lv_point_precise_t wind_arrow_points[5];
+
+static void update_wind_arrow(float speed_mph)
+{
+    /* Lucide's arrow-up scaled into the box: up the shaft, then out along
+       each barb.  The apex is visited twice so the whole glyph is a single
+       stroke.  With no wind the arrow flattens into a dash. */
+    static const float arrow[5][2] = {
+        { 0.0f, WIND_ARROW_ARM }, { 0.0f, -WIND_ARROW_ARM }, { -WIND_ARROW_ARM, 0.0f },
+        { 0.0f, -WIND_ARROW_ARM }, { WIND_ARROW_ARM, 0.0f },
+    };
+    static const float dash_shape[5][2] = {
+        { -WIND_ARROW_ARM, 0.0f }, { WIND_ARROW_ARM, 0.0f }, { WIND_ARROW_ARM, 0.0f },
+        { WIND_ARROW_ARM, 0.0f }, { WIND_ARROW_ARM, 0.0f },
+    };
+
+    bool calm = speed_mph == 0.0f;
+    const float (*shape)[2] = calm ? dash_shape : arrow;
+    /* Point the way the air travels, which is opposite where it comes from. */
+    float a = calm ? 0.0f : fmodf(WIND_DIRECTION_DEG + 180.0f, 360.0f) * DEG_TO_RAD;
+    float sn = sinf(a), cs = cosf(a);
+    const float mid = WIND_ARROW_BOX / 2.0f;
+    for(uint8_t i = 0; i < 5; i++) {
+        wind_arrow_points[i].x = (lv_coord_t)lroundf(mid + shape[i][0] * cs - shape[i][1] * sn);
+        wind_arrow_points[i].y = (lv_coord_t)lroundf(mid + shape[i][0] * sn + shape[i][1] * cs);
+    }
+    lv_line_set_points_mutable(dash.wind_arrow, wind_arrow_points, 5);
+}
+
 /* Colour a status pill.  A field the car has not reported is shown as
    unknown rather than being quietly reported as off. */
 static void set_status(lv_obj_t * pill, bool value, bool valid)
@@ -410,7 +446,15 @@ void race_dashboard_create(lv_obj_t * parent)
 
     lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
     dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
-    lv_obj_align(dash.wind, LV_ALIGN_CENTER, 0, 5);
+    lv_obj_align(dash.wind, LV_ALIGN_CENTER, -20, 5);
+
+    dash.wind_arrow = lv_line_create(right);
+    lv_obj_set_size(dash.wind_arrow, WIND_ARROW_BOX, WIND_ARROW_BOX);
+    lv_obj_align(dash.wind_arrow, LV_ALIGN_CENTER, 43, 5);
+    lv_obj_set_style_line_color(dash.wind_arrow, lv_color_hex(C_TEXT), 0);
+    lv_obj_set_style_line_width(dash.wind_arrow, 4, 0);
+    lv_obj_set_style_line_rounded(dash.wind_arrow, true, 0);
+    update_wind_arrow(0.0f);
 
     dash.relative = make_label(right, "", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_add_flag(dash.relative, LV_OBJ_FLAG_HIDDEN);
@@ -445,6 +489,7 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
 
     snprintf(buf, sizeof(buf), "%.1f", t->airspeed_mph);
     lv_label_set_text(dash.wind, buf);
+    update_wind_arrow(t->airspeed_mph);
 
     snprintf(buf, sizeof(buf), "%.1f", t->speed_mph - t->airspeed_mph);
     lv_label_set_text(dash.relative, buf);

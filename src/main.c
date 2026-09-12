@@ -56,6 +56,34 @@ race_telemetry_t t = {
     .engine_on_valid = true,
    };
 
+/* Stand-in telemetry for a car that is not plugged in.  A supermileage car
+   does not hold a steady throttle: it burns up to a target speed, shuts the
+   engine off, coasts a long way while it slows, then burns again.  Reporting
+   a permanently running engine, as this used to, left the dashboard pinned in
+   its engine-on state and drew the burn/coast rails as one flat colour. */
+#define DEMO_BURN_TO_MPH    30.0f   /* shut the engine off at this speed */
+#define DEMO_COAST_TO_MPH   14.0f   /* light it again at this speed */
+#define DEMO_BURN_ACCEL      2.5f   /* mph gained per second under power */
+#define DEMO_COAST_DECEL     0.9f   /* mph lost per second coasting */
+#define DEMO_TIME_SCALE      2.0f   /* run the fake race faster than life */
+#define FT_PER_SEC_PER_MPH   1.46667f
+
+static void advance_demo(race_telemetry_t * tm, float elapsed_s)
+{
+    float dt = elapsed_s * DEMO_TIME_SCALE;
+
+    if(tm->engine_on) {
+        tm->speed_mph += DEMO_BURN_ACCEL * dt;
+        if(tm->speed_mph >= DEMO_BURN_TO_MPH) tm->engine_on = false;
+    }
+    else {
+        tm->speed_mph -= DEMO_COAST_DECEL * dt;
+        if(tm->speed_mph <= DEMO_COAST_TO_MPH) tm->engine_on = true;
+    }
+
+    tm->distance_ft += tm->speed_mph * FT_PER_SEC_PER_MPH * dt;
+}
+
 int main(int argc, char **argv)
 {
   /*Initialize LVGL*/
@@ -66,7 +94,8 @@ int main(int argc, char **argv)
 
   race_dashboard_create(lv_scr_act());
 
-  t.speed_mph = 15;
+  t.speed_mph = DEMO_COAST_TO_MPH;
+  uint32_t last_tick = lv_tick_get();
 
   while(1) {
     /* Periodically call the lv_task handler.
@@ -77,7 +106,9 @@ int main(int argc, char **argv)
     }
     sleep_ms(sleep_time_ms);
 
-    t.distance_ft += 1;
+    uint32_t now = lv_tick_get();
+    advance_demo(&t, (now - last_tick) / 1000.0f);
+    last_tick = now;
     race_dashboard_set_telemetry(&t);
   }
 

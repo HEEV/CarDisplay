@@ -93,6 +93,8 @@ int main(int argc, char **argv)
   sdl_hal_init(1024, 600);
 
   race_dashboard_create(lv_scr_act());
+  /* The real pair comes from the strategizer; the demo drives its own. */
+  race_dashboard_set_burn_window(DEMO_COAST_TO_MPH, DEMO_BURN_TO_MPH);
 
   t.speed_mph = DEMO_COAST_TO_MPH;
   uint32_t last_tick = lv_tick_get();

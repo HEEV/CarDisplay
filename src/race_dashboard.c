@@ -137,9 +137,6 @@ typedef struct {
     lv_obj_t * full_live[TRACK_LAPS];
     float offset_ft;
     float previous_distance_ft;
-    uint8_t drawn_lap;
-    uint8_t drawn_count;
-    lv_coord_t drawn_tail;
     bool reset_was_pressed;
     bool has_distance;
     bool race_complete;
@@ -151,6 +148,18 @@ typedef struct {
     uint8_t sequence_step;
     uint32_t burn_step_ms;
     uint32_t coast_step_ms;
+    float burn_start_mph;
+    float burn_stop_mph;
+    uint8_t ramp_lit;
+    uint32_t ramp_rgb;
+    uint32_t ramp_tick;
+    float ramp_prev_speed;
+    float speed_rate;
+    float burn_rate;
+    float coast_rate;
+    uint8_t drawn_lap;
+    uint8_t drawn_count;
+    lv_coord_t drawn_tail;
 } dashboard_t;
 
 /* Single dashboard instance; this port intentionally exposes one full-screen UI. */
@@ -314,7 +323,7 @@ static void reset_race(float distance, segment_type_t status)
     dash.previous_distance_ft = distance;
     dash.has_distance = true;
     dash.race_complete = false;
-    /* Nothing on screen matches the cleared race, so force the next redraw. */
+    /* Nothing drawn matches the cleared race, so force the next redraw. */
     dash.drawn_count = (uint8_t)-1;
     dash.previous_status = status;
     memset(dash.live_count, 0, sizeof(dash.live_count));
@@ -452,23 +461,109 @@ static void set_wing_pair(uint8_t position, uint32_t rgb)
 
 /* Swap the segmented wings for the pair of solid arcs that mark the moment
    the driver should act on the engine, or swap them back. */
+/* How much warning the ramp gives before a call, how much of the shorter
+   phase it may take up, and how hard the measured speed rate is smoothed. */
+#define RAMP_SECONDS    5.0f
+#define RAMP_MAX_SHARE  0.5f
+#define RAMP_SMOOTHING  0.05f
+
+/* Light the bottom `lit` ticks of each wing and rest the others.  The stack
+   always grows from the bottom, so filling and emptying read as one motion
+   run forwards and backwards. */
+static void set_ramp(uint8_t lit, uint32_t rgb)
+{
+    if(lit == dash.ramp_lit && rgb == dash.ramp_rgb) return;
+    dash.ramp_lit = lit;
+    dash.ramp_rgb = rgb;
+    for(uint8_t k = 0; k < WING_SEGMENTS; k++)
+        set_wing_pair(k, k < lit ? rgb : C_GRAY);
+}
+
+/* Fill the wings in proportion to how close the car is to its next engine
+   call.  Coasting, the ramp climbs as speed bleeds down toward the burn
+   speed, going green when it is time to light up.  Burning, it holds green
+   and then falls away as speed closes on the shutoff speed. */
+static void update_ramp(float speed_mph)
+{
+    /* A countdown cue drives the ticks itself while it runs. */
+    if(dash.sequence_phase != SEQ_IDLE) return;
+    if(dash.burn_stop_mph <= dash.burn_start_mph) return;
+
+    /* Track how fast speed is moving, smoothed hard so the ramp does not
+       twitch on sensor noise. */
+    uint32_t now = lv_tick_get();
+    float dt = (now - dash.ramp_tick) / 1000.0f;
+    dash.ramp_tick = now;
+    if(dt > 0.005f && dt < 1.0f) {
+        float rate = (speed_mph - dash.ramp_prev_speed) / dt;
+        dash.speed_rate += (rate - dash.speed_rate) * RAMP_SMOOTHING;
+    }
+    dash.ramp_prev_speed = speed_mph;
+
+    /* Remember how quickly the car gains and sheds speed.  A mileage car
+       picks up speed far quicker than it loses it, so the two phases are
+       nothing like the same length. */
+    if(dash.engine_running && dash.speed_rate > 0.05f) dash.burn_rate = dash.speed_rate;
+    if(!dash.engine_running && dash.speed_rate < -0.05f) dash.coast_rate = -dash.speed_rate;
+
+    /* Ramp over the same number of seconds at both ends, so the warning
+       feels the same whichever call is coming.  Half the shorter phase is
+       the ceiling: any longer and the shorter one would start counting down
+       the moment it began, leaving no steady stretch in between. */
+    float ramp_secs = RAMP_SECONDS;
+    if(dash.burn_rate > 0.0f && dash.coast_rate > 0.0f) {
+        float span = dash.burn_stop_mph - dash.burn_start_mph;
+        float shortest = LV_MIN(span / dash.burn_rate, span / dash.coast_rate);
+        ramp_secs = LV_MIN(RAMP_SECONDS, shortest * RAMP_MAX_SHARE);
+    }
+
+    float to_go = dash.engine_running ? dash.burn_stop_mph - speed_mph
+                                      : speed_mph - dash.burn_start_mph;
+    /* How fast the car is closing on whichever threshold is next. */
+    float closing = dash.engine_running ? dash.speed_rate : -dash.speed_rate;
+
+    uint8_t lit;
+    if(to_go <= 0.0f) {
+        lit = dash.engine_running ? 0 : WING_SEGMENTS;
+    }
+    else if(closing <= 0.01f || ramp_secs <= 0.0f) {
+        /* Holding speed, or moving away from the call entirely. */
+        lit = dash.engine_running ? WING_SEGMENTS : 0;
+    }
+    else {
+        float part = (to_go / closing) / ramp_secs;  /* 1 a full ramp out, 0 at the call */
+        if(part >= 1.0f) {
+            lit = dash.engine_running ? WING_SEGMENTS : 0;
+        }
+        else {
+            float filled = dash.engine_running ? part : 1.0f - part;
+            int steps = (int)lroundf(filled * WING_SEGMENTS);
+            lit = (uint8_t)LV_MAX(0, LV_MIN(WING_SEGMENTS, steps));
+        }
+    }
+
+    /* Green means the engine is earning its keep, or should be lit this
+       instant.  Red is the only state that asks the driver for something, so
+       it shows just while coasting toward a burn and clears the moment the
+       engine catches. */
+    bool green = dash.engine_running || lit == WING_SEGMENTS;
+    set_ramp(lit, green ? C_GREEN_HIGHLIGHT : C_ALERT);
+}
+
 static void apply_dial(void)
 {
     bool solid = false;
     uint32_t rgb = C_GREEN_HIGHLIGHT;
     const char * text = "";
 
-    /* A countdown cue outranks everything.  Otherwise a running engine holds
-       the dial solid for as long as it runs, and a coasting car gets the
-       plain tick band back. */
+    /* Only a countdown cue takes the dial over now.  The rest of the time
+       the wings carry the ramp, which says everything a steady banner did
+       and also how far through the burn or coast the car is. */
     if(dash.sequence_phase == SEQ_BURN_HOLD) {
         solid = true; rgb = C_GREEN_HIGHLIGHT; text = "ENGINE ON";
     }
     else if(dash.sequence_phase == SEQ_COAST_HOLD) {
         solid = true; rgb = C_ALERT; text = "ENGINE OFF";
-    }
-    else if(dash.sequence_phase == SEQ_IDLE && dash.engine_running) {
-        solid = true; rgb = C_GREEN_HIGHLIGHT; text = "ENGINE ON";
     }
 
     for(uint8_t i = 0; i < WING_SEGMENTS * 2; i++) {
@@ -533,6 +628,14 @@ static void sequence_tick(lv_timer_t * timer)
             apply_dial();
             break;
     }
+}
+
+void race_dashboard_set_burn_window(float burn_start_mph, float burn_stop_mph)
+{
+    dash.burn_start_mph = burn_start_mph;
+    dash.burn_stop_mph = burn_stop_mph;
+    /* Force the next update through, whatever the ramp happened to be. */
+    dash.ramp_lit = WING_SEGMENTS + 1;
 }
 
 void race_dashboard_start_sequence(uint32_t burn_ms, uint32_t coast_ms)
@@ -741,6 +844,7 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
         dash.engine_running = (status == SEG_BURN);
         apply_dial();
     }
+    update_ramp(t->speed_mph);
 
     /* Restart on the press, not for as long as the button is held down. */
     if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
@@ -749,3 +853,6 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
     append_live(t->distance_ft, status);
     update_track(t->distance_ft);
 }
+
+
+

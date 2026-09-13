@@ -137,6 +137,9 @@ typedef struct {
     lv_obj_t * full_live[TRACK_LAPS];
     float offset_ft;
     float previous_distance_ft;
+    uint8_t drawn_lap;
+    uint8_t drawn_count;
+    lv_coord_t drawn_tail;
     bool reset_was_pressed;
     bool has_distance;
     bool race_complete;
@@ -266,6 +269,19 @@ static void refresh_progress(void)
         lap = (uint8_t)LV_MIN((int)(adjusted / TRACK_LENGTH_FT), TRACK_LAPS - 1);
     }
 
+    /* Redrawing tears down and rebuilds every bar on both rails, which is far
+       too much work to repeat for every telemetry sample.  Only the trailing
+       segment creeps along between samples, so skip the rebuild until it has
+       grown by a whole pixel or the shape of the lap has changed. */
+    uint8_t count = dash.live_count[lap];
+    lv_coord_t tail = 0;
+    if(count) tail = (lv_coord_t)lroundf(dash.live[lap][count - 1].pct
+                                         * (RAIL_FULL_W - RAIL_INSET) / 100.0f);
+    if(lap == dash.drawn_lap && count == dash.drawn_count && tail == dash.drawn_tail) return;
+    dash.drawn_lap = lap;
+    dash.drawn_count = count;
+    dash.drawn_tail = tail;
+
     /* Top rail: the lap being driven right now, at full width. */
     populate_progress(dash.current_live, dash.live[lap], dash.live_count[lap],
                       false, RAIL_FULL_W - RAIL_INSET);
@@ -298,6 +314,8 @@ static void reset_race(float distance, segment_type_t status)
     dash.previous_distance_ft = distance;
     dash.has_distance = true;
     dash.race_complete = false;
+    /* Nothing on screen matches the cleared race, so force the next redraw. */
+    dash.drawn_count = (uint8_t)-1;
     dash.previous_status = status;
     memset(dash.live_count, 0, sizeof(dash.live_count));
     dash.live_count[0] = 1;

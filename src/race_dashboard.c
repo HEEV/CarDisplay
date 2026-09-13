@@ -6,7 +6,10 @@
 #define TRACK_LENGTH_FT 12623.03f
 #define TRACK_LAPS 4
 #define WING_SEGMENTS 10
-#define MAX_LIVE_SEGMENTS 16
+/* Room for the burn/coast changes in one lap.  A mileage car cycles the
+   engine often, so this is sized well past what a lap should ever need
+   rather than just past what one usually does. */
+#define MAX_LIVE_SEGMENTS 96
 
 /* Palette lifted from the browser build's colors.css so the two front ends
    agree.  Translucent CSS values are pre-composited against whatever sits
@@ -335,8 +338,12 @@ static void append_live(float distance, segment_type_t status)
         dash.live_count[lap] = 1;
         dash.live[lap][0] = (progress_segment_t){ 0, status };
     }
-    if(dash.previous_status != status && dash.live_count[lap] < MAX_LIVE_SEGMENTS) {
-        dash.live[lap][dash.live_count[lap]++] = (progress_segment_t){ 0, status };
+    /* Follow the state change even when there is no room left to record it,
+       so a busy lap cannot leave the rail stuck reporting one colour for
+       every change that comes after. */
+    if(dash.previous_status != status) {
+        if(dash.live_count[lap] < MAX_LIVE_SEGMENTS)
+            dash.live[lap][dash.live_count[lap]++] = (progress_segment_t){ 0, status };
         dash.previous_status = status;
     }
     float delta_pct = (distance - dash.previous_distance_ft) * 100.0f / TRACK_LENGTH_FT;

@@ -6,19 +6,97 @@
 #define TRACK_LENGTH_FT 12623.03f
 #define TRACK_LAPS 4
 #define WING_SEGMENTS 10
-#define MAX_LIVE_SEGMENTS 16
+/* Room for the burn/coast changes in one lap.  A mileage car cycles the
+   engine often, so this is sized well past what a lap should ever need
+   rather than just past what one usually does. */
+#define MAX_LIVE_SEGMENTS 96
 
-#define C_BG       0x000000
-#define C_PANEL    0x4D4D4D
-#define C_TEXT     0xE8EEF2
-#define C_MUTED    0x87939E
-#define C_TECH     0x00B8D4
-#define C_GREEN    0x10D66D
-#define C_RED      0xF04438
-#define C_GRAY     0xC8C8C8
-#define C_BLUE     0x167CEB
-#define C_ORANGE   0xFF8A00
+/* Palette lifted from the browser build's colors.css so the two front ends
+   agree.  Translucent CSS values are pre-composited against whatever sits
+   behind them: a panel is white at 30 percent over black, and a panel border
+   is white at 10 percent over the panel. */
+/* Screen layout.  Everything is derived from the panel size and a single
+   margin so the two side columns stay mirror images of each other and the
+   upper half stays centred on the dial. */
+#define SCREEN_W       1024
+#define SCREEN_H        600
+#define EDGE             36
+#define COL_W           228
+#define COL_LEFT_X     EDGE
+#define COL_RIGHT_X    (SCREEN_W - EDGE - COL_W)
+#define CARD_TOP_H      195
+#define CARD_BOTTOM_H   164
+#define CARD_GAP         24
+#define COLUMN_H        (CARD_TOP_H + CARD_GAP + CARD_BOTTOM_H)
+/* A card's one pixel border plus its ten pixels of padding, both sides. */
+#define CARD_INSET       22
+
+#define BOTTOM_H        126
+#define BOTTOM_W       1016
+#define BOTTOM_Y       (SCREEN_H - 4 - BOTTOM_H)
+
+/* Rail geometry.  Segments need widths in pixels because a rail is usually
+   only partly filled, and a percentage width would stretch them across the
+   whole rail.  The rails span the drawable width of the strategy panel and
+   the four lap cells divide that evenly, so widening the panel widens the
+   rails with it instead of leaving them overhanging one edge. */
+#define CURSOR_W         3
+#define RAIL_INSET       4    /* one pixel of border and one of padding, both sides */
+#define RAIL_FULL_W     (BOTTOM_W - CARD_INSET)
+#define RAIL_LAP_STRIDE (RAIL_FULL_W / TRACK_LAPS)
+#define RAIL_LAP_GAP     6
+#define RAIL_LAP_W      (RAIL_LAP_STRIDE - RAIL_LAP_GAP)
+
+/* Middle of the space left above the strategy panel. */
+#define DIAL_CX        (SCREEN_W / 2)
+#define DIAL_CY        (BOTTOM_Y / 2)
+#define CARD_TOP_Y     (DIAL_CY - COLUMN_H / 2)
+#define CARD_BOTTOM_Y  (CARD_TOP_Y + CARD_TOP_H + CARD_GAP)
+
+/* Dial geometry, taken from the browser build's stylesheet.  Ticks sit in a
+   band between radius 195 and 225, each five degrees wide on a nine degree
+   pitch, sweeping ninety degrees down each side.  The solid arcs that
+   replace them occupy exactly the same band so nothing shifts when the dial
+   swaps between the two. */
+#define DIAL_OUTER_R    225
+#define DIAL_BAND        30
+#define DIAL_MID_R      (DIAL_OUTER_R - DIAL_BAND / 2)
+#define DIAL_BOX        (DIAL_OUTER_R * 2)
+#define TICK_W           18
+#define TICK_PITCH_DEG    9.0f
+/* Index 0 of each wing is its lowest tick, the end the countdown starts from. */
+#define WING_LEFT_BASE  137.5f
+#define WING_RIGHT_BASE  38.5f
+
+#define C_BG              0x000000  /* --color-bg */
+#define C_BG_SECONDARY    0x121212  /* --color-bg-secondary, empty rail */
+#define C_PANEL           0x4D4D4D  /* --color-panel-background over black */
+#define C_PANEL_BORDER    0x5F5F5F  /* --color-border-gray over a panel */
+#define C_TEXT            0xFFFFFF  /* --color-text */
+#define C_LABEL           0x61CBF4  /* --color-text-secondary, panel headings */
+#define C_TECH            0x00A8FF  /* --color-tech, track marker */
+#define C_GRAY            0xB4B4B4  /* --color-gray */
+#define C_GREEN_HIGHLIGHT 0x00FF88  /* --color-green-highlight */
+#define C_ALERT           0xFF0000  /* --color-alert */
+
+/* Strategy rail fills.  Burn and coast each have a lived and a planned
+   colour, and the pairs are deliberately unalike so the driver can tell the
+   two rails apart at a glance. */
+#define C_LIVE_COAST      0x00E060  /* --color-position-real */
+#define C_LIVE_BURN       0xFFD500  /* --color-gas-real */
+
+/* Engine status pills.  Unknown is a distinct third state, not a stand-in
+   for off. */
+#define C_ICON_ON         0x00A338  /* --color-icon-on */
+#define C_ICON_OFF        0xC00000  /* --color-icon-off */
+#define C_ICON_UNKNOWN    0xB4B4B4  /* --color-icon-disabled */
 #define DEG_TO_RAD 0.01745329251994329577f
+
+/* Montserrat digits at the size the browser build used for the speed readout
+   (14em against a 16px root).  Generated into src/fonts; see that file's header
+   for the exact command.  Rendering real glyphs at this size keeps the number
+   sharp on the 1024x600 panel; scaling up a 48px face does not. */
+LV_FONT_DECLARE(speed_digits_224);
 
 /* A race segment is either engine-off coasting or engine-on burning. */
 typedef enum { SEG_COAST, SEG_BURN } segment_type_t;
@@ -26,6 +104,16 @@ typedef enum { SEG_COAST, SEG_BURN } segment_type_t;
 typedef struct { float end_ft; segment_type_t type; } strategy_point_t;
 /* A rendered bar segment records a width as a percentage of one lap. */
 typedef struct { float pct; segment_type_t type; } progress_segment_t;
+/* Where the burn/coast countdown has got to.  The browser build ran this as
+   a chain of sleeps; here it is a timer whose period changes per phase. */
+typedef enum {
+    SEQ_IDLE,
+    SEQ_BURN_COUNTDOWN,
+    SEQ_BURN_HOLD,
+    SEQ_COAST_COUNTDOWN,
+    SEQ_COAST_HOLD,
+} sequence_phase_t;
+
 /* All object handles and persistent telemetry/race state for this one screen. */
 typedef struct {
     lv_obj_t * root;
@@ -34,24 +122,44 @@ typedef struct {
     lv_obj_t * armed;
     lv_obj_t * running;
     lv_obj_t * wind;
+    lv_obj_t * wind_arrow;
     lv_obj_t * relative;
     lv_obj_t * lap_label;
     lv_obj_t * marker;
     lv_obj_t * wing[WING_SEGMENTS * 2];
+    lv_obj_t * ring[2];
+    lv_obj_t * engine_call;
+    lv_obj_t * unit_label;
+    bool engine_running;
     lv_obj_t * current_live;
     lv_obj_t * current_sim;
+    lv_obj_t * lap_cursor;
     lv_obj_t * full_live[TRACK_LAPS];
     float offset_ft;
     float previous_distance_ft;
     bool reset_was_pressed;
     bool has_distance;
+    bool race_complete;
     segment_type_t previous_status;
     progress_segment_t live[TRACK_LAPS][MAX_LIVE_SEGMENTS];
     uint8_t live_count[TRACK_LAPS];
     lv_timer_t * sequence_timer;
-    uint16_t sequence_step;
-    uint16_t burn_steps;
-    uint16_t coast_steps;
+    sequence_phase_t sequence_phase;
+    uint8_t sequence_step;
+    uint32_t burn_step_ms;
+    uint32_t coast_step_ms;
+    float burn_start_mph;
+    float burn_stop_mph;
+    uint8_t ramp_lit;
+    uint32_t ramp_rgb;
+    uint32_t ramp_tick;
+    float ramp_prev_speed;
+    float speed_rate;
+    float burn_rate;
+    float coast_rate;
+    uint8_t drawn_lap;
+    uint8_t drawn_count;
+    lv_coord_t drawn_tail;
 } dashboard_t;
 
 /* Single dashboard instance; this port intentionally exposes one full-screen UI. */
@@ -62,6 +170,7 @@ static const strategy_point_t simulation[] = {
     { 3000, SEG_COAST }, { 5500, SEG_BURN }, { 8500, SEG_COAST },
     {10800, SEG_BURN }, {12621, SEG_COAST },
 };
+#define SIMULATION_POINTS (sizeof(simulation) / sizeof(simulation[0]))
 
 /* User-supplied ShellTrackFixed samples, decimated only along straight runs.
    They are scaled once into the 225 x 120 px map viewport at startup. */
@@ -90,13 +199,7 @@ static void prepare_track_points(void)
 /* Choose the live-race color for a burn or coast state. */
 static lv_color_t color(segment_type_t status)
 {
-    return lv_color_hex(status == SEG_BURN ? C_GREEN : C_RED);
-}
-
-/* Choose the planned-strategy color for a burn or coast state. */
-static lv_color_t simulation_color(segment_type_t status)
-{
-    return lv_color_hex(status == SEG_BURN ? C_ORANGE : C_BLUE);
+    return lv_color_hex(status == SEG_BURN ? C_LIVE_BURN : C_LIVE_COAST);
 }
 
 /* Create a label with the shared dashboard typography setup. */
@@ -119,12 +222,25 @@ static lv_obj_t * panel(lv_obj_t * parent)
     lv_obj_set_style_radius(p, 16, 0);
     lv_obj_set_style_pad_all(p, 10, 0);
     lv_obj_set_style_border_width(p, 1, 0);
-    lv_obj_set_style_border_color(p, lv_color_hex(0x696969), 0);
+    lv_obj_set_style_border_color(p, lv_color_hex(C_PANEL_BORDER), 0);
     return p;
 }
 
-/* Rebuild a progress rail from its current segment list. */
-static void populate_progress(lv_obj_t * host, const progress_segment_t * segments, uint8_t count, bool simulated)
+/* Rebuild a progress rail from its current segment list.  content_width is
+   the drawable width of the rail in pixels. */
+/* One block on a rail. */
+static void add_bar(lv_obj_t * host, lv_coord_t w, lv_color_t rgb, lv_opa_t opa)
+{
+    if(w <= 0) return;
+    lv_obj_t * item = lv_obj_create(host);
+    lv_obj_remove_style_all(item);
+    lv_obj_set_size(item, w, LV_PCT(100));
+    lv_obj_set_style_bg_color(item, rgb, 0);
+    lv_obj_set_style_bg_opa(item, opa, 0);
+}
+
+static void populate_progress(lv_obj_t * host, const progress_segment_t * segments, uint8_t count,
+                              lv_coord_t content_width)
 {
     lv_obj_clean(host);
     lv_obj_set_layout(host, LV_LAYOUT_FLEX);
@@ -132,16 +248,11 @@ static void populate_progress(lv_obj_t * host, const progress_segment_t * segmen
     lv_obj_set_flex_align(host, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     for(uint8_t i = 0; i < count; i++) {
         if(segments[i].pct <= 0.0f) continue;
-        lv_obj_t * item = lv_obj_create(host);
-        lv_obj_remove_style_all(item);
-        lv_obj_set_height(item, LV_PCT(100));
-        lv_obj_set_flex_grow(item, (uint8_t)LV_MAX(1, (int)(segments[i].pct * 10.0f)));
-        lv_obj_set_style_bg_color(item, simulated ? simulation_color(segments[i].type) : color(segments[i].type), 0);
-        lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-        lv_obj_set_style_border_width(item, 1, 0);
-        lv_obj_set_style_border_color(item, lv_color_hex(C_BG), 0);
+        add_bar(host, (lv_coord_t)lroundf(segments[i].pct * content_width / 100.0f),
+                color(segments[i].type), LV_OPA_COVER);
     }
 }
+
 
 /* Create the black, bordered container behind a single progress rail. */
 static lv_obj_t * progress_host(lv_obj_t * parent, lv_coord_t x, lv_coord_t y,
@@ -151,7 +262,7 @@ static lv_obj_t * progress_host(lv_obj_t * parent, lv_coord_t x, lv_coord_t y,
     lv_obj_remove_style_all(host);
     lv_obj_set_pos(host, x, y);
     lv_obj_set_size(host, width, height);
-    lv_obj_set_style_bg_color(host, lv_color_hex(C_BG), 0);
+    lv_obj_set_style_bg_color(host, lv_color_hex(C_BG_SECONDARY), 0);
     lv_obj_set_style_bg_opa(host, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(host, lv_color_hex(C_GRAY), 0);
     lv_obj_set_style_border_width(host, 1, 0);
@@ -168,40 +279,50 @@ static void refresh_progress(void)
         lap = (uint8_t)LV_MIN((int)(adjusted / TRACK_LENGTH_FT), TRACK_LAPS - 1);
     }
 
-    // Update Current Progress
-    lv_obj_clean(dash.current_live);
-    lv_obj_t * current = lv_obj_create(dash.current_live);
-    lv_obj_remove_style_all(current);
-    lv_obj_set_height(current, LV_PCT(100));
-    int pct = (((float)dash.previous_distance_ft/TRACK_LENGTH_FT) - lap) * 100;
-    lv_obj_set_width(current, LV_PCT(pct));
-    lv_obj_set_style_bg_color(current, lv_color_hex(C_GREEN), 0);
-    lv_obj_set_style_bg_opa(current, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(current, 1, 0);
-    lv_obj_set_style_border_color(current, lv_color_hex(C_BG), 0);
+    /* Redrawing tears down and rebuilds every bar on both rails, which is far
+       too much work to repeat for every telemetry sample.  Only the trailing
+       segment creeps along between samples, so skip the rebuild until it has
+       grown by a whole pixel or the shape of the lap has changed. */
+    uint8_t count = dash.live_count[lap];
+    lv_coord_t tail = 0;
+    if(count) tail = (lv_coord_t)lroundf(dash.live[lap][count - 1].pct
+                                         * (RAIL_FULL_W - RAIL_INSET) / 100.0f);
+    if(lap == dash.drawn_lap && count == dash.drawn_count && tail == dash.drawn_tail) return;
+    dash.drawn_lap = lap;
+    dash.drawn_count = count;
+    dash.drawn_tail = tail;
 
-    // Update Race progress
-    lv_obj_clean(dash.full_live[lap]);
-    lv_obj_t * item = lv_obj_create(dash.full_live[lap]);
-    lv_obj_remove_style_all(item);
-    lv_obj_set_height(item, LV_PCT(100));
-    int pct2 = (((float)dash.previous_distance_ft/TRACK_LENGTH_FT) - lap) * 100;
-    lv_obj_set_width(item, LV_PCT(pct2));
-    lv_obj_set_style_bg_color(item, lv_color_hex(C_GREEN), 0);
-    lv_obj_set_style_bg_opa(item, LV_OPA_COVER, 0);
-    lv_obj_set_style_border_width(item, 1, 0);
-    lv_obj_set_style_border_color(item, lv_color_hex(C_BG), 0);
+    /* Slide the cursor to how far through the lap the car is. */
+    float done = 0.0f;
+    for(uint8_t i = 0; i < dash.live_count[lap]; i++) done += dash.live[lap][i].pct;
+    if(done > 100.0f) done = 100.0f;
+    lv_coord_t content = RAIL_FULL_W - RAIL_INSET;
+    lv_obj_set_pos(dash.lap_cursor,
+                   RAIL_INSET / 2 + (lv_coord_t)lroundf(done * content / 100.0f) - CURSOR_W / 2, 0);
 
+    /* Plan rail is static; the rail below it is the lap being driven. */
+    populate_progress(dash.current_live, dash.live[lap], dash.live_count[lap],
+                      RAIL_FULL_W - RAIL_INSET);
 
-    // Update Simulation Progress
-    progress_segment_t sim[5];
+    /* Bottom row: every lap of the race, each in its own quarter-width cell. */
+    for(uint8_t i = 0; i < TRACK_LAPS; i++) {
+        populate_progress(dash.full_live[i], dash.live[i], dash.live_count[i],
+                          RAIL_LAP_W - RAIL_INSET);
+    }
+}
+
+/* Draw the planned strategy rail.  The plan does not change during a race,
+   so this runs once at startup rather than on every telemetry sample. */
+static void build_planned_rail(void)
+{
+    progress_segment_t planned[SIMULATION_POINTS];
     float start = 0.0f;
-    for(uint8_t i = 0; i < 5; i++) {
-        sim[i].pct = (simulation[i].end_ft - start) * 100.0f / TRACK_LENGTH_FT;
-        sim[i].type = simulation[i].type;
+    for(uint8_t i = 0; i < SIMULATION_POINTS; i++) {
+        planned[i].pct = (simulation[i].end_ft - start) * 100.0f / TRACK_LENGTH_FT;
+        planned[i].type = simulation[i].type;
         start = simulation[i].end_ft;
     }
-    populate_progress(dash.current_sim, sim, 5, true);
+    populate_progress(dash.current_sim, planned, SIMULATION_POINTS, RAIL_FULL_W - RAIL_INSET);
 }
 
 /* Start a new race at the supplied odometer value and clear live history. */
@@ -210,6 +331,9 @@ static void reset_race(float distance, segment_type_t status)
     dash.offset_ft = distance;
     dash.previous_distance_ft = distance;
     dash.has_distance = true;
+    dash.race_complete = false;
+    /* Nothing drawn matches the cleared race, so force the next redraw. */
+    dash.drawn_count = (uint8_t)-1;
     dash.previous_status = status;
     memset(dash.live_count, 0, sizeof(dash.live_count));
     dash.live_count[0] = 1;
@@ -241,6 +365,7 @@ static void update_track(float distance)
 static void append_live(float distance, segment_type_t status)
 {
     if(!dash.has_distance) { reset_race(distance, status); return; }
+    if(dash.race_complete) return;
     float adjusted = LV_MAX(0.0f, distance - dash.offset_ft);
     float previous = LV_MAX(0.0f, dash.previous_distance_ft - dash.offset_ft);
     uint8_t lap = (uint8_t)LV_MIN((int)(adjusted / TRACK_LENGTH_FT), TRACK_LAPS - 1);
@@ -249,14 +374,21 @@ static void append_live(float distance, segment_type_t status)
         dash.live_count[lap] = 1;
         dash.live[lap][0] = (progress_segment_t){ 0, status };
     }
-    if(dash.previous_status != status && dash.live_count[lap] < MAX_LIVE_SEGMENTS) {
-        dash.live[lap][dash.live_count[lap]++] = (progress_segment_t){ 0, status };
+    /* Follow the state change even when there is no room left to record it,
+       so a busy lap cannot leave the rail stuck reporting one colour for
+       every change that comes after. */
+    if(dash.previous_status != status) {
+        if(dash.live_count[lap] < MAX_LIVE_SEGMENTS)
+            dash.live[lap][dash.live_count[lap]++] = (progress_segment_t){ 0, status };
         dash.previous_status = status;
     }
     float delta_pct = (distance - dash.previous_distance_ft) * 100.0f / TRACK_LENGTH_FT;
     if(delta_pct > 0 && dash.live_count[lap])
         dash.live[lap][dash.live_count[lap] - 1].pct += delta_pct;
     dash.previous_distance_ft = distance;
+    /* Freeze the rails once the final lap is done so the last segment stops
+       growing past the end of the race. */
+    if(adjusted >= TRACK_LENGTH_FT * TRACK_LAPS) dash.race_complete = true;
     refresh_progress();
 }
 
@@ -266,11 +398,285 @@ static void make_status(lv_obj_t * parent, const char * text, lv_obj_t ** target
 {
     *target = make_label(parent, text, lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_set_width(*target, LV_PCT(100));
-    lv_obj_set_style_bg_color(*target, lv_color_hex(C_GRAY), 0);
+    lv_obj_set_style_bg_color(*target, lv_color_hex(C_ICON_UNKNOWN), 0);
     lv_obj_set_style_bg_opa(*target, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(*target, 8, 0);
     lv_obj_set_style_pad_ver(*target, 7, 0);
     lv_obj_set_style_text_align(*target, LV_TEXT_ALIGN_CENTER, 0);
+}
+
+/* The headwind arrow, drawn as a stroked polyline so it can point in any
+   direction.  The car has no wind vane yet, so the browser dashboard fixed
+   the direction at a pure headwind and this does the same. */
+#define WIND_ARROW_BOX  32
+#define WIND_ARROW_ARM  9.33f
+#define WIND_DIRECTION_DEG 180.0f
+static lv_point_precise_t wind_arrow_points[5];
+
+static void update_wind_arrow(float speed_mph)
+{
+    /* Lucide's arrow-up scaled into the box: up the shaft, then out along
+       each barb.  The apex is visited twice so the whole glyph is a single
+       stroke.  With no wind the arrow flattens into a dash. */
+    static const float arrow[5][2] = {
+        { 0.0f, WIND_ARROW_ARM }, { 0.0f, -WIND_ARROW_ARM }, { -WIND_ARROW_ARM, 0.0f },
+        { 0.0f, -WIND_ARROW_ARM }, { WIND_ARROW_ARM, 0.0f },
+    };
+    static const float dash_shape[5][2] = {
+        { -WIND_ARROW_ARM, 0.0f }, { WIND_ARROW_ARM, 0.0f }, { WIND_ARROW_ARM, 0.0f },
+        { WIND_ARROW_ARM, 0.0f }, { WIND_ARROW_ARM, 0.0f },
+    };
+
+    bool calm = speed_mph == 0.0f;
+    const float (*shape)[2] = calm ? dash_shape : arrow;
+    /* Point the way the air travels, which is opposite where it comes from. */
+    float a = calm ? 0.0f : fmodf(WIND_DIRECTION_DEG + 180.0f, 360.0f) * DEG_TO_RAD;
+    float sn = sinf(a), cs = cosf(a);
+    const float mid = WIND_ARROW_BOX / 2.0f;
+    for(uint8_t i = 0; i < 5; i++) {
+        wind_arrow_points[i].x = (lv_coord_t)lroundf(mid + shape[i][0] * cs - shape[i][1] * sn);
+        wind_arrow_points[i].y = (lv_coord_t)lroundf(mid + shape[i][0] * sn + shape[i][1] * cs);
+    }
+    lv_line_set_points_mutable(dash.wind_arrow, wind_arrow_points, 5);
+}
+
+/* Colour a status pill.  A field the car has not reported is shown as
+   unknown rather than being quietly reported as off. */
+static void set_status(lv_obj_t * pill, bool value, bool valid)
+{
+    uint32_t fill = !valid ? C_ICON_UNKNOWN : (value ? C_ICON_ON : C_ICON_OFF);
+    lv_obj_set_style_bg_color(pill, lv_color_hex(fill), 0);
+}
+
+/* How long the solid ring stays up once the countdown reaches the driver's
+   cue, matching the browser build's five second hold. */
+#define SEQUENCE_HOLD_MS 5000
+
+/* How faintly the part of the ramp still to come is drawn. */
+#define RAMP_DIM_OPA    LV_OPA_30
+
+/* Repaint one pair of ticks, one on each wing, at a given strength.
+   Position 0 is the bottom of a wing and WING_SEGMENTS-1 the top, which is
+   the order the countdown works through them. */
+static void paint_wing_pair(uint8_t position, uint32_t rgb, lv_opa_t opa)
+{
+    for(uint8_t side = 0; side < 2; side++) {
+        lv_obj_t * tick = dash.wing[side * WING_SEGMENTS + position];
+        lv_obj_set_style_bg_color(tick, lv_color_hex(rgb), 0);
+        lv_obj_set_style_bg_opa(tick, opa, 0);
+    }
+}
+
+/* Repaint every wing tick in one colour, at full strength. */
+static void set_all_wings(uint32_t rgb)
+{
+    for(uint8_t k = 0; k < WING_SEGMENTS; k++) paint_wing_pair(k, rgb, LV_OPA_COVER);
+}
+
+/* Repaint one pair of ticks, one on each wing, at a given strength.
+   Position 0 is the bottom of a wing and WING_SEGMENTS-1 the top, which is
+   the order the countdown works through them. */
+static void set_wing_pair(uint8_t position, uint32_t rgb)
+{
+    paint_wing_pair(position, rgb, LV_OPA_COVER);
+}
+
+/* How much warning the ramp gives before a call, how much of the shorter
+   phase it may take up, and how hard the measured speed rate is smoothed. */
+#define RAMP_SECONDS    5.0f
+#define RAMP_MAX_SHARE  0.5f
+#define RAMP_SMOOTHING  0.05f
+
+/* Light the bottom `lit` ticks of each wing and rest the others.  The stack
+   always grows from the bottom, so filling and emptying read as one motion
+   run forwards and backwards. */
+static void set_ramp(uint8_t lit, uint32_t rgb)
+{
+    if(lit == dash.ramp_lit && rgb == dash.ramp_rgb) return;
+    dash.ramp_lit = lit;
+    dash.ramp_rgb = rgb;
+    /* The ticks still to come are drawn faintly in the colour heading their
+       way, so the whole ramp stays on screen and the driver can judge how
+       much of it is left instead of watching a few lit ticks float in the
+       dark. */
+    for(uint8_t k = 0; k < WING_SEGMENTS; k++)
+        paint_wing_pair(k, rgb, k < lit ? LV_OPA_COVER : RAMP_DIM_OPA);
+}
+
+/* Fill the wings in proportion to how close the car is to its next engine
+   call.  Coasting, the ramp climbs as speed bleeds down toward the burn
+   speed, going green when it is time to light up.  Burning, it holds green
+   and then falls away as speed closes on the shutoff speed. */
+static void update_ramp(float speed_mph)
+{
+    /* A countdown cue drives the ticks itself while it runs. */
+    if(dash.sequence_phase != SEQ_IDLE) return;
+    if(dash.burn_stop_mph <= dash.burn_start_mph) return;
+
+    /* Track how fast speed is moving, smoothed hard so the ramp does not
+       twitch on sensor noise. */
+    uint32_t now = lv_tick_get();
+    float dt = (now - dash.ramp_tick) / 1000.0f;
+    dash.ramp_tick = now;
+    if(dt > 0.005f && dt < 1.0f) {
+        float rate = (speed_mph - dash.ramp_prev_speed) / dt;
+        dash.speed_rate += (rate - dash.speed_rate) * RAMP_SMOOTHING;
+    }
+    dash.ramp_prev_speed = speed_mph;
+
+    /* Remember how quickly the car gains and sheds speed.  A mileage car
+       picks up speed far quicker than it loses it, so the two phases are
+       nothing like the same length. */
+    if(dash.engine_running && dash.speed_rate > 0.05f) dash.burn_rate = dash.speed_rate;
+    if(!dash.engine_running && dash.speed_rate < -0.05f) dash.coast_rate = -dash.speed_rate;
+
+    /* Ramp over the same number of seconds at both ends, so the warning
+       feels the same whichever call is coming.  Half the shorter phase is
+       the ceiling: any longer and the shorter one would start counting down
+       the moment it began, leaving no steady stretch in between. */
+    float ramp_secs = RAMP_SECONDS;
+    if(dash.burn_rate > 0.0f && dash.coast_rate > 0.0f) {
+        float span = dash.burn_stop_mph - dash.burn_start_mph;
+        float shortest = LV_MIN(span / dash.burn_rate, span / dash.coast_rate);
+        ramp_secs = LV_MIN(RAMP_SECONDS, shortest * RAMP_MAX_SHARE);
+    }
+
+    float to_go = dash.engine_running ? dash.burn_stop_mph - speed_mph
+                                      : speed_mph - dash.burn_start_mph;
+    /* How fast the car is closing on whichever threshold is next. */
+    float closing = dash.engine_running ? dash.speed_rate : -dash.speed_rate;
+
+    uint8_t lit;
+    if(to_go <= 0.0f) {
+        lit = dash.engine_running ? 0 : WING_SEGMENTS;
+    }
+    else if(closing <= 0.01f || ramp_secs <= 0.0f) {
+        /* Holding speed, or moving away from the call entirely. */
+        lit = dash.engine_running ? WING_SEGMENTS : 0;
+    }
+    else {
+        float part = (to_go / closing) / ramp_secs;  /* 1 a full ramp out, 0 at the call */
+        if(part >= 1.0f) {
+            lit = dash.engine_running ? WING_SEGMENTS : 0;
+        }
+        else {
+            float filled = dash.engine_running ? part : 1.0f - part;
+            int steps = (int)lroundf(filled * WING_SEGMENTS);
+            lit = (uint8_t)LV_MAX(0, LV_MIN(WING_SEGMENTS, steps));
+        }
+    }
+
+    /* Green means the engine is earning its keep, or should be lit this
+       instant.  Red is the only state that asks the driver for something, so
+       it shows just while coasting toward a burn and clears the moment the
+       engine catches. */
+    bool green = dash.engine_running || lit == WING_SEGMENTS;
+    set_ramp(lit, green ? C_GREEN_HIGHLIGHT : C_ALERT);
+}
+
+static void apply_dial(void)
+{
+    bool solid = false;
+    uint32_t rgb = C_GREEN_HIGHLIGHT;
+    const char * text = "";
+
+    /* Only a countdown cue takes the dial over now.  The rest of the time
+       the wings carry the ramp, which says everything a steady banner did
+       and also how far through the burn or coast the car is. */
+    if(dash.sequence_phase == SEQ_BURN_HOLD) {
+        solid = true; rgb = C_GREEN_HIGHLIGHT; text = "ENGINE ON";
+    }
+    else if(dash.sequence_phase == SEQ_COAST_HOLD) {
+        solid = true; rgb = C_ALERT; text = "ENGINE OFF";
+    }
+
+    for(uint8_t i = 0; i < WING_SEGMENTS * 2; i++) {
+        if(solid) lv_obj_add_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_remove_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    for(uint8_t i = 0; i < 2; i++) {
+        lv_obj_set_style_arc_color(dash.ring[i], lv_color_hex(rgb), LV_PART_MAIN);
+        if(solid) lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+        else lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+    }
+    if(solid) {
+        lv_label_set_text(dash.engine_call, text);
+        lv_obj_set_style_text_color(dash.engine_call, lv_color_hex(rgb), 0);
+        lv_obj_remove_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+    }
+    else lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+
+    /* Fade the speed back behind the message so the instruction reads first. */
+    lv_opa_t readout = solid ? LV_OPA_30 : LV_OPA_COVER;
+    lv_obj_set_style_opa(dash.speed_value, readout, 0);
+    lv_obj_set_style_opa(dash.unit_label, readout, 0);
+}
+
+/* Advance the countdown one step.  Each phase sets the period for the next. */
+static void sequence_tick(lv_timer_t * timer)
+{
+    switch(dash.sequence_phase) {
+        case SEQ_BURN_COUNTDOWN:
+            set_wing_pair(dash.sequence_step, C_GREEN_HIGHLIGHT);
+            if(++dash.sequence_step >= WING_SEGMENTS) {
+                dash.sequence_phase = SEQ_BURN_HOLD;
+                lv_timer_set_period(timer, SEQUENCE_HOLD_MS);
+                apply_dial();
+            }
+            break;
+
+        case SEQ_BURN_HOLD:
+            dash.sequence_phase = SEQ_COAST_COUNTDOWN;
+            dash.sequence_step = 0;
+            lv_timer_set_period(timer, dash.coast_step_ms);
+            apply_dial();
+            break;
+
+        case SEQ_COAST_COUNTDOWN:
+            /* Counts down from the top of the wings, the opposite way round
+               from the burn countdown. */
+            set_wing_pair(WING_SEGMENTS - 1 - dash.sequence_step, C_ALERT);
+            if(++dash.sequence_step >= WING_SEGMENTS) {
+                dash.sequence_phase = SEQ_COAST_HOLD;
+                lv_timer_set_period(timer, SEQUENCE_HOLD_MS);
+                apply_dial();
+            }
+            break;
+
+        case SEQ_COAST_HOLD:
+        default:
+            set_all_wings(C_GRAY);
+            dash.sequence_phase = SEQ_IDLE;
+            dash.sequence_timer = NULL;
+            lv_timer_delete(timer);
+            apply_dial();
+            break;
+    }
+}
+
+void race_dashboard_set_burn_window(float burn_start_mph, float burn_stop_mph)
+{
+    dash.burn_start_mph = burn_start_mph;
+    dash.burn_stop_mph = burn_stop_mph;
+    /* Force the next update through, whatever the ramp happened to be. */
+    dash.ramp_lit = WING_SEGMENTS + 1;
+}
+
+void race_dashboard_start_sequence(uint32_t burn_ms, uint32_t coast_ms)
+{
+    if(!dash.root || dash.sequence_timer) return;
+
+    /* The browser build divided the countdown by one less than the number of
+       ticks, so the last tick lands as the countdown expires. */
+    dash.burn_step_ms = LV_MAX(1, burn_ms / (WING_SEGMENTS - 1));
+    dash.coast_step_ms = LV_MAX(1, coast_ms / (WING_SEGMENTS - 1));
+    dash.sequence_phase = SEQ_BURN_COUNTDOWN;
+    dash.sequence_step = 0;
+    set_all_wings(C_GRAY);
+    apply_dial();
+
+    dash.sequence_timer = lv_timer_create(sequence_tick, dash.burn_step_ms, NULL);
+    lv_timer_ready(dash.sequence_timer);
 }
 
 /* Construct every screen object once. Call only after LVGL/display initialization. */
@@ -278,36 +684,39 @@ void race_dashboard_create(lv_obj_t * parent)
 {
     memset(&dash, 0, sizeof(dash));
     dash.root = parent;
-    lv_obj_set_size(parent, 1024, 600);
+    lv_obj_set_size(parent, SCREEN_W, SCREEN_H);
     lv_obj_set_style_bg_color(parent, lv_color_hex(C_BG), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
 
-    /* Reference layout: four compact side cards, an unboxed central speedometer,
-       and a full-width, three-rail strategy panel. */
+    /* Reference layout: a column of cards down each side, an unboxed central
+       speedometer, and a full-width strategy panel along the bottom.  The two
+       columns are the same width and sit at the same heights, and the space
+       above the strategy panel is centred on DIAL_CY, so the whole upper half
+       reads as symmetric about the middle of the dial. */
     lv_obj_t * left = panel(parent);
-    lv_obj_set_pos(left, 36, 58);
-    lv_obj_set_size(left, 228, 195);
+    lv_obj_set_pos(left, COL_LEFT_X, CARD_TOP_Y);
+    lv_obj_set_size(left, COL_W, CARD_TOP_H);
 
     lv_obj_t * left_voltage = panel(parent);
-    lv_obj_set_pos(left_voltage, 36, 277);
-    lv_obj_set_size(left_voltage, 228, 164);
+    lv_obj_set_pos(left_voltage, COL_LEFT_X, CARD_BOTTOM_Y);
+    lv_obj_set_size(left_voltage, COL_W, CARD_BOTTOM_H);
 
     lv_obj_t * center = lv_obj_create(parent);
     lv_obj_remove_style_all(center);
-    lv_obj_set_pos(center, 282, 45);
-    lv_obj_set_size(center, 460, 410);
+    lv_obj_set_size(center, DIAL_BOX, DIAL_BOX);
+    lv_obj_set_pos(center, DIAL_CX - DIAL_BOX / 2, DIAL_CY - DIAL_BOX / 2);
 
     lv_obj_t * right = panel(parent);
-    lv_obj_set_pos(right, 797, 58);
-    lv_obj_set_size(right, 192, 175);
+    lv_obj_set_pos(right, COL_RIGHT_X, CARD_TOP_Y);
+    lv_obj_set_size(right, COL_W, CARD_TOP_H);
 
     lv_obj_t * right_status = panel(parent);
-    lv_obj_set_pos(right_status, 797, 255);
-    lv_obj_set_size(right_status, 192, 164);
+    lv_obj_set_pos(right_status, COL_RIGHT_X, CARD_BOTTOM_Y);
+    lv_obj_set_size(right_status, COL_W, CARD_BOTTOM_H);
 
     lv_obj_t * bottom = panel(parent);
-    lv_obj_set_pos(bottom, 4, 477);
-    lv_obj_set_size(bottom, 1016, 119);
+    lv_obj_set_pos(bottom, (SCREEN_W - BOTTOM_W) / 2, BOTTOM_Y);
+    lv_obj_set_size(bottom, BOTTOM_W, BOTTOM_H);
 
     dash.lap_label = make_label(left, "Current Lap: 1", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_align(dash.lap_label, LV_ALIGN_TOP_MID, 0, 0);
@@ -325,7 +734,7 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_set_style_bg_opa(dash.marker, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(dash.marker, LV_RADIUS_CIRCLE, 0);
 
-    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_TECH), &lv_font_montserrat_16);
+    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_LABEL), &lv_font_montserrat_16);
     lv_obj_align(voltage_title, LV_ALIGN_TOP_MID, 0, 20);
 
     dash.voltage_value = make_label(left_voltage, "--", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
@@ -338,43 +747,74 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_remove_style_all(speed_box);
     lv_obj_set_size(speed_box, LV_PCT(100), LV_PCT(100));
 
-    /* Place the 20 tick objects on two circular arcs.  Each rectangle is
-       tangentially rotated; this avoids the non-circular chevron made by
-       positioning the ticks along two straight lines. */
-    for(uint8_t i = 0; i < WING_SEGMENTS; i++) {
-        float left_angle = (135.0f + i * 10.0f) * DEG_TO_RAD;
-        float right_angle = (45.0f - i * 10.0f) * DEG_TO_RAD;
-        float angles[2] = { left_angle, right_angle };
+    /* Place the tick pairs around the two wings.  Each tick is rotated so its
+       long axis points at the centre of the dial. */
+    const float cx = DIAL_BOX / 2.0f, cy = DIAL_BOX / 2.0f;
+    for(uint8_t k = 0; k < WING_SEGMENTS; k++) {
+        float bearing[2] = { WING_LEFT_BASE + k * TICK_PITCH_DEG,
+                             WING_RIGHT_BASE - k * TICK_PITCH_DEG };
         for(uint8_t side = 0; side < 2; side++) {
-            uint8_t index = side == 0 ? i : WING_SEGMENTS + i;
-            float a = angles[side];
-            dash.wing[index] = lv_obj_create(speed_box);
-            lv_obj_remove_style_all(dash.wing[index]);
-            lv_obj_set_size(dash.wing[index], 16, 32);
-            lv_obj_set_pos(dash.wing[index],
-                           (lv_coord_t)lroundf(230.0f + 200.0f * cosf(a) - 8.0f),
-                           (lv_coord_t)lroundf(205.0f + 200.0f * sinf(a) - 16.0f));
-            lv_obj_set_style_bg_color(dash.wing[index], lv_color_hex(C_GRAY), 0);
-            lv_obj_set_style_bg_opa(dash.wing[index], LV_OPA_COVER, 0);
-            lv_obj_set_style_transform_angle(dash.wing[index],
-                                             (int32_t)lroundf((a / DEG_TO_RAD + 90.0f) * 10.0f), 0);
-            lv_obj_set_style_transform_width(dash.wing[index], 6, 0);
-            lv_obj_set_style_transform_height(dash.wing[index], 6, 0);
+            uint8_t index = side * WING_SEGMENTS + k;
+            float a = bearing[side] * DEG_TO_RAD;
+            lv_obj_t * tick = lv_obj_create(speed_box);
+            dash.wing[index] = tick;
+            lv_obj_remove_style_all(tick);
+            lv_obj_set_size(tick, TICK_W, DIAL_BAND);
+            lv_obj_set_pos(tick,
+                           (lv_coord_t)lroundf(cx + DIAL_MID_R * cosf(a)) - TICK_W / 2,
+                           (lv_coord_t)lroundf(cy + DIAL_MID_R * sinf(a)) - DIAL_BAND / 2);
+            lv_obj_set_style_bg_color(tick, lv_color_hex(C_GRAY), 0);
+            lv_obj_set_style_bg_opa(tick, LV_OPA_COVER, 0);
+            /* Spin each tick about its own middle.  The default pivot is the
+               top-left corner, which swings every tick off the circle by a
+               different amount and leaves the band lumpy and off-centre. */
+            lv_obj_set_style_transform_pivot_x(tick, TICK_W / 2, 0);
+            lv_obj_set_style_transform_pivot_y(tick, DIAL_BAND / 2, 0);
+            lv_obj_set_style_transform_rotation(tick,
+                                                (int32_t)lroundf((bearing[side] + 90.0f) * 10.0f), 0);
         }
     }
 
-    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
-    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, -50, -50);
-    lv_obj_set_style_transform_zoom(dash.speed_value, 650, 0);
-    lv_obj_set_style_transform_width(dash.speed_value, 80, 0);
-    lv_obj_set_style_transform_height(dash.speed_value, 80, 0);
+    /* The same two wings again, but solid.  These stand in for the ticks
+       while the countdown is telling the driver to act, then hide again. */
+    static const int32_t ring_span[2][2] = { { 135, 225 }, { 315, 45 } };
+    for(uint8_t i = 0; i < 2; i++) {
+        dash.ring[i] = lv_arc_create(speed_box);
+        lv_obj_remove_style_all(dash.ring[i]);
+        lv_obj_set_size(dash.ring[i], DIAL_BOX, DIAL_BOX);
+        lv_obj_align(dash.ring[i], LV_ALIGN_CENTER, 0, 0);
+        lv_obj_set_style_arc_width(dash.ring[i], DIAL_BAND, LV_PART_MAIN);
+        lv_arc_set_bg_angles(dash.ring[i], ring_span[i][0], ring_span[i][1]);
+        lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+    }
 
-    lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_20);
-    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 82);
+    /* Centre the readout as one block: the digits, a gap, then the unit.
+       The offsets account for the digits' ink sitting low in their line box. */
+    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_224);
+    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, -24);
 
-    lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_TECH), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
+    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 93);
+    dash.unit_label = mph;
+
+    /* Sits over the dimmed speed rather than above it, so nothing shifts
+       around when the dial changes state. */
+    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &lv_font_montserrat_48);
+    lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, 0);
+    lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+
+    lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
     dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
-    lv_obj_align(dash.wind, LV_ALIGN_CENTER, 0, 5);
+    lv_obj_align(dash.wind, LV_ALIGN_CENTER, -20, 5);
+
+    dash.wind_arrow = lv_line_create(right);
+    lv_obj_set_size(dash.wind_arrow, WIND_ARROW_BOX, WIND_ARROW_BOX);
+    lv_obj_align(dash.wind_arrow, LV_ALIGN_CENTER, 43, 5);
+    lv_obj_set_style_line_color(dash.wind_arrow, lv_color_hex(C_TEXT), 0);
+    lv_obj_set_style_line_width(dash.wind_arrow, 4, 0);
+    lv_obj_set_style_line_rounded(dash.wind_arrow, true, 0);
+    update_wind_arrow(0.0f);
 
     dash.relative = make_label(right, "", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_add_flag(dash.relative, LV_OBJ_FLAG_HIDDEN);
@@ -382,7 +822,7 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_t * wind_units = make_label(right, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
     lv_obj_align(wind_units, LV_ALIGN_BOTTOM_MID, 0, -17);
 
-    lv_obj_t * stitle = make_label(right_status, "ENGINE STATUS", lv_color_hex(C_TECH), &lv_font_montserrat_16);
+    lv_obj_t * stitle = make_label(right_status, "ENGINE STATUS", lv_color_hex(C_LABEL), &lv_font_montserrat_16);
     lv_obj_align(stitle, LV_ALIGN_TOP_MID, 0, 18);
 
     make_status(right_status, "Armed", &dash.armed);
@@ -391,9 +831,22 @@ void race_dashboard_create(lv_obj_t * parent)
     make_status(right_status, "Running", &dash.running);
     lv_obj_align(dash.running, LV_ALIGN_TOP_MID, 0, 108);
 
-    dash.current_live = progress_host(bottom, 18, 10, 980, 34);
-    dash.current_sim = progress_host(bottom, 18, 48, 980, 34);
-    for(uint8_t i = 0; i < TRACK_LAPS; i++) dash.full_live[i] = progress_host(bottom, 18 + i * 245, 87, 240, 22);
+    /* Plan on top, the run being driven directly beneath it, so a lap that
+       has drifted off plan shows up as the two rails disagreeing. */
+    dash.current_sim = progress_host(bottom, 0, 0, RAIL_FULL_W, 34);
+    dash.current_live = progress_host(bottom, 0, 38, RAIL_FULL_W, 34);
+    for(uint8_t i = 0; i < TRACK_LAPS; i++) dash.full_live[i] = progress_host(bottom, i * RAIL_LAP_STRIDE, 80, RAIL_LAP_W, 22);
+
+    /* A single line through both full-width rails marking how far into the
+       lap the car is.  Created last so it draws over them.  Reading straight
+       down it says what the plan asked for and what the driver did. */
+    dash.lap_cursor = lv_obj_create(bottom);
+    lv_obj_remove_style_all(dash.lap_cursor);
+    lv_obj_set_size(dash.lap_cursor, CURSOR_W, 72);
+    lv_obj_set_pos(dash.lap_cursor, 0, 0);
+    lv_obj_set_style_bg_color(dash.lap_cursor, lv_color_hex(C_TEXT), 0);
+    lv_obj_set_style_bg_opa(dash.lap_cursor, LV_OPA_COVER, 0);
+    build_planned_rail();
     reset_race(0, SEG_COAST);
     update_track(0);
 }
@@ -403,11 +856,12 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
 {
     if(!t || !dash.root) return;
     char buf[32];
-    snprintf(buf, sizeof(buf), "%.1f", t->speed_mph);
+    snprintf(buf, sizeof(buf), "%d", (int)lroundf(t->speed_mph));
     lv_label_set_text(dash.speed_value, buf);
 
     snprintf(buf, sizeof(buf), "%.1f", t->airspeed_mph);
     lv_label_set_text(dash.wind, buf);
+    update_wind_arrow(t->airspeed_mph);
 
     snprintf(buf, sizeof(buf), "%.1f", t->speed_mph - t->airspeed_mph);
     lv_label_set_text(dash.relative, buf);
@@ -417,14 +871,24 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
         lv_label_set_text(dash.voltage_value, buf);
     } else lv_label_set_text(dash.voltage_value, "--");
 
-    lv_obj_set_style_bg_color(dash.armed, lv_color_hex(t->engine_armed ? C_GREEN : C_RED), 0);
+    set_status(dash.armed, t->engine_armed, t->engine_armed_valid);
+    set_status(dash.running, t->engine_on, t->engine_on_valid);
 
-    lv_obj_set_style_bg_color(dash.running, lv_color_hex(t->engine_on ? C_GREEN : C_RED), 0);
-    segment_type_t status = t->engine_on ? SEG_BURN : SEG_COAST;
+    /* An unreported engine counts as coasting, matching the browser build. */
+    segment_type_t status = (t->engine_on_valid && t->engine_on) ? SEG_BURN : SEG_COAST;
+    if(dash.engine_running != (status == SEG_BURN)) {
+        dash.engine_running = (status == SEG_BURN);
+        apply_dial();
+    }
+    update_ramp(t->speed_mph);
 
-    //if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
+    /* Restart on the press, not for as long as the button is held down. */
+    if(t->timer_reset && !dash.reset_was_pressed) reset_race(t->distance_ft, status);
 
     dash.reset_was_pressed = t->timer_reset;
     append_live(t->distance_ft, status);
     update_track(t->distance_ft);
 }
+
+
+

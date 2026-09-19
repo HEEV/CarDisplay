@@ -14,6 +14,13 @@
 
 #define FT_PER_SEC_PER_MPH 1.46667f
 
+#ifdef CD_HAVE_SENSORHUB
+/* If SensorHub ever renumbers its analog slots, fail here rather than
+   silently reading the wrong channel for battery voltage. */
+_Static_assert(SH_ANALOG_BATTERY == 0,
+               "battery moved; update cd_default_channel_map()");
+#endif
+
 /* Demo shape: a supermileage car burns to a target, shuts off, and coasts a
    long way.  Holding a steady throttle, as an earlier version did, left the
    burn/coast rails drawn as one flat colour. */
@@ -37,8 +44,12 @@ cd_channel_map_t cd_default_channel_map(void)
 {
     cd_channel_map_t map;
 
-    /* channelA0 carried battery voltage, scaled by 0.35, in the last car
-       config the Python server ran with. */
+    /* analog[0] carries battery voltage, scaled by 0.35, which is what the
+       last car config the Python server ran with used.
+
+       Spelled as a literal rather than SH_ANALOG_BATTERY so this function
+       still compiles in the demo-only build, where SensorHub's header is not
+       present at all. The static assertion below keeps the two in step. */
     map.voltage_channel = 0;
     map.voltage_scale = 0.35f;
 
@@ -53,54 +64,39 @@ cd_channel_map_t cd_default_channel_map(void)
 }
 
 #ifdef CD_HAVE_SENSORHUB
-static uint8_t digital_channel(const sh_packet_t *packet, int index)
+/* Read a mapped digital channel. An unmapped index (negative) or an
+   out-of-range one leaves *out alone and reports false, so a bad map entry
+   shows up as a dark indicator rather than a wrong one. */
+static bool mapped_digital(const sh_packet_t *packet, int index, bool *out)
 {
-    switch (index) {
-    case 0: return packet->channel0;
-    case 1: return packet->channel1;
-    case 2: return packet->channel2;
-    case 3: return packet->channel3;
-    case 4: return packet->channel4;
-    default: return 0;
-    }
+    if (index < 0) return false;
+    return sh_digital_in(packet, (unsigned)index, out) == SH_OK;
 }
 
 static void apply_packet(cd_telemetry_source *source, const sh_packet_t *packet)
 {
     race_telemetry_t *t = &source->telemetry;
     const cd_channel_map_t *map = &source->map;
+    uint16_t raw = 0;
 
     t->speed_mph = packet->speed;
     t->airspeed_mph = packet->airspeed;
 
-    if (map->voltage_channel >= 0) {
-        t->voltage_v = (float)packet->channelA0 * map->voltage_scale;
+    if (map->voltage_channel >= 0 &&
+        sh_analog(packet, (unsigned)map->voltage_channel, &raw) == SH_OK) {
+        t->voltage_v = (float)raw * map->voltage_scale;
         t->voltage_valid = true;
     }
     else {
         t->voltage_valid = false;
     }
 
-    if (map->timer_reset_channel >= 0) {
-        t->timer_reset = digital_channel(packet, map->timer_reset_channel) != 0;
-    }
+    (void)mapped_digital(packet, map->timer_reset_channel, &t->timer_reset);
 
-    if (map->engine_armed_channel >= 0) {
-        t->engine_armed =
-            digital_channel(packet, map->engine_armed_channel) != 0;
-        t->engine_armed_valid = true;
-    }
-    else {
-        t->engine_armed_valid = false;
-    }
-
-    if (map->engine_on_channel >= 0) {
-        t->engine_on = digital_channel(packet, map->engine_on_channel) != 0;
-        t->engine_on_valid = true;
-    }
-    else {
-        t->engine_on_valid = false;
-    }
+    t->engine_armed_valid =
+        mapped_digital(packet, map->engine_armed_channel, &t->engine_armed);
+    t->engine_on_valid =
+        mapped_digital(packet, map->engine_on_channel, &t->engine_on);
 }
 #endif /* CD_HAVE_SENSORHUB */
 
@@ -203,7 +199,8 @@ bool cd_telemetry_source_poll(cd_telemetry_source *source, uint32_t elapsed_ms,
            only one worth drawing. */
         while ((n = read(source->fd, buffer, sizeof(buffer))) > 0) {
             for (ssize_t i = 0; i < n; ++i) {
-                if (sh_parser_feed(&source->parser, buffer[i], &packet)) {
+                if (sh_parser_feed(&source->parser, buffer[i], &packet)
+                    == SH_OK) {
                     apply_packet(source, &packet);
                     got = true;
                 }

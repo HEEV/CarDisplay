@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  host-sim:
+    # the SDL build is what the team develops against on a laptop. it is not
+    # what runs in the car, so a green tick here means "the dashboard still
+    # compiles and links", not "the car display works".
+    name: host simulator / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest ]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install SDL2 (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsdl2-dev
+
+      - name: Install SDL2 (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake sdl2
+
+      - name: Configure
+        run: cmake -S . -B build
+
+      - name: Build
+        run: cmake --build build -j
+
+      - name: The binary must exist and not be empty
+        run: |
+          test -s bin/main
+          echo "built $(ls -l bin/main | awk '{print $5}') bytes"
+
+  startup-smoke:
+    # LVGL will happily compile and then abort at runtime on a bad config, so
+    # actually start the thing under a virtual framebuffer and require it to
+    # survive a few seconds. catches null display drivers and bad font data,
+    # which a compile check never will.
+    name: it starts without crashing
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install SDL2 and Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsdl2-dev xvfb
+
+      - name: Build
+        run: |
+          cmake -S . -B build
+          cmake --build build -j
+
+      - name: Run for five seconds under Xvfb
+        run: |
+          set +e
+          xvfb-run -a timeout --signal=INT 5 ./bin/main
+          rc=$?
+          # 124/130 mean the timeout fired, which is success: it was still
+          # running. anything else means it fell over on its own.
+          if [ "$rc" = "124" ] || [ "$rc" = "130" ] || [ "$rc" = "0" ]; then
+            echo "survived startup (rc=$rc)"
+            exit 0
+          fi
+          echo "died during startup with rc=$rc"
+          exit 1
+
+  warnings:
+    # only our own sources, not vendored LVGL, which has its own standards
+    name: our sources build clean
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install SDL2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsdl2-dev
+      - name: Compile src/ with -Wall -Wextra -Werror
+        run: |
+          cmake -S . -B build
+          cmake --build build -j --target lvgl
+          for f in src/main.c src/race_dashboard.c src/hal/hal.c src/telemetry_source.c; do
+            echo "== $f"
+            cc -std=c99 -Wall -Wextra -Werror -c "$f" -o /dev/null \
+               -I. -Isrc -Ilvgl $(sdl2-config --cflags)
+          done
+
+  demo-only:
+    # CarDisplay must keep building without SensorHub, so that a laptop with
+    # no sibling checkout still gets a working simulator
+    name: builds without SensorHub
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Install SDL2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsdl2-dev
+      - name: Configure with live telemetry off
+        run: cmake -S . -B build -DCD_WITH_SENSORHUB=OFF
+      - name: Build
+        run: cmake --build build -j
+      - name: Binary must exist
+        run: test -s bin/main
+
+  with-sensorhub:
+    # and it must also build against SensorHub, which is how it runs in the car
+    name: builds with live telemetry
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          path: CarDisplay
+      - uses: actions/checkout@v4
+        with:
+          repository: HEEV/SensorHub
+          path: SensorHub
+      - name: Install SDL2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake libsdl2-dev
+      - name: Configure against the sibling checkout
+        run: |
+          cmake -S CarDisplay -B build \
+                -DCD_SENSORHUB_PATH=${{ github.workspace }}/SensorHub
+      - name: Build
+        run: cmake --build build -j
+      - name: The SensorHub code must actually be linked in
+        # a silent fallback to demo mode would otherwise look identical to
+        # success here
+        run: |
+          nm CarDisplay/bin/main | grep -q sh_parser_feed
+          nm CarDisplay/bin/main | grep -q sh_serial_open
+          echo "live telemetry symbols present"

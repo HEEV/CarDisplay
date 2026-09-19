@@ -38,6 +38,42 @@ set(MAIN_LIBS lvgl lvgl::examples lvgl::demos lvgl::thorvg ${SDL2_LIBRARIES})
 
 # Create the main executable, depending on the FreeRTOS option
 list(APPEND MAIN_SOURCES src/main.c src/race_dashboard.c src/fonts/speed_digits_224.c)
+list(APPEND MAIN_SOURCES src/telemetry_source.c)
+
+# SensorHub supplies live telemetry from the Arduino. Optional on purpose:
+# without it this still builds and runs the demo, which is what keeps the
+# simulator useful on a laptop. CarComputer provides it as a submodule; a
+# side-by-side checkout works too.
+set(CD_SENSORHUB_PATH "" CACHE PATH "Path to a SensorHub checkout")
+option(CD_WITH_SENSORHUB "Build with live telemetry from SensorHub" ON)
+
+if(NOT CD_WITH_SENSORHUB)
+    set(_cd_sensorhub "")
+elseif(CD_SENSORHUB_PATH)
+    # An explicit path that does not resolve is a mistake, not a reason to
+    # silently fall back and build something the caller did not ask for.
+    if(NOT EXISTS "${CD_SENSORHUB_PATH}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "CD_SENSORHUB_PATH=${CD_SENSORHUB_PATH} has no CMakeLists.txt. "
+            "Fix the path, or pass -DCD_WITH_SENSORHUB=OFF for demo only.")
+    endif()
+    set(_cd_sensorhub "${CD_SENSORHUB_PATH}")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/SensorHub/CMakeLists.txt")
+    set(_cd_sensorhub "${CMAKE_CURRENT_SOURCE_DIR}/SensorHub")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../SensorHub/CMakeLists.txt")
+    set(_cd_sensorhub "${CMAKE_CURRENT_SOURCE_DIR}/../SensorHub")
+else()
+    set(_cd_sensorhub "")
+endif()
+
+if(_cd_sensorhub)
+    message(STATUS "CarDisplay: live telemetry via SensorHub at ${_cd_sensorhub}")
+    add_subdirectory(${_cd_sensorhub} ${CMAKE_BINARY_DIR}/sensorhub EXCLUDE_FROM_ALL)
+    list(APPEND MAIN_LIBS sensorhub)
+    add_compile_definitions(CD_HAVE_SENSORHUB=1)
+else()
+    message(STATUS "CarDisplay: SensorHub not found, demo telemetry only")
+endif()
 
 
 if(NOT MSVC)

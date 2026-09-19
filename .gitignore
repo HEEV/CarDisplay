@@ -5,6 +5,10 @@ bin/
 # Ignore all dot folders, with below exceptions
 .*/
 
+# ...and here is one. Without it the rule above swallows .github/, so CI
+# workflows are silently never committed.
+!.github/
+
 # VSCode
 .vscode
 

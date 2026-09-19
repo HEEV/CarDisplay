@@ -356,7 +356,10 @@ static void update_track(float distance)
     lv_coord_t x = (lv_coord_t)(track_points[i].x + (track_points[i + 1].x - track_points[i].x) * f);
     lv_coord_t y = (lv_coord_t)(track_points[i].y + (track_points[i + 1].y - track_points[i].y) * f);
     lv_obj_set_pos(dash.marker, x - 7, y - 7);
-    char buf[24];
+    /* 32, not 24: "Current Lap: " is 13 characters and an int can print 11
+       more, so 24 could truncate. Laps never get near that in practice, but
+       gcc cannot know that and is right to complain. */
+    char buf[32];
     snprintf(buf, sizeof(buf), "Current Lap: %d", (int)(adjusted / TRACK_LENGTH_FT) + 1);
     lv_label_set_text(dash.lap_label, buf);
 }

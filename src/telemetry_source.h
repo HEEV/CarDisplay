@@ -1,22 +1,6 @@
-/*
- * Live telemetry for the dashboard.
- *
- * Bridges SensorHub's wire packets to the race_telemetry_t the dashboard
- * draws.  Two jobs live here that nothing else does:
- *
- *   1. Channel mapping.  The Arduino sends anonymous channel0..4 and
- *      channelA0; what they *mean* is a wiring decision.  The old Python
- *      server kept this in car_config.json, where both a git pull and an MQTT
- *      message could rewrite it.  Here it is an explicit struct, so the
- *      mapping is visible in the code that depends on it.
- *
- *   2. Distance.  The packet has no odometer, so distance is integrated from
- *      speed.  It therefore restarts at zero whenever this process does.
- *
- * When no serial device is present the dashboard falls back to the built-in
- * demo, which is what makes the simulator useful on a laptop.
- */
-
+/* Maps SensorHub packets onto the race_telemetry_t the dashboard draws, and
+   integrates distance, which the packet does not carry. Falls back to a demo
+   when no serial device is present. */
 #ifndef TELEMETRY_SOURCE_H
 #define TELEMETRY_SOURCE_H
 
@@ -25,19 +9,13 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-/*
- * Which physical channel carries what.
- *
- * Defaults follow the last known-good car_config.json from the Python server,
- * which is the only written record of this wiring we have.
- *
- * engine_armed and engine_on are deliberately left unmapped.  The dashboard
- * has drawn indicators for them since it was written, but no channel has ever
- * carried them: the old config never defined them either, so those lights
- * have been dark in every run so far.  Set the channel indices below once
- * someone confirms which pins they are on, rather than guessing and shipping
- * a confidently wrong light.
- */
+/* Which channel carries what. Explicit code rather than a JSON file that a
+   git pull or an MQTT message could rewrite, which is how the old Python
+   server lost its channel names.
+
+   engine_armed and engine_on stay unmapped: the dashboard has drawn
+   indicators for them since it was written but no channel has ever carried
+   them, and a confidently wrong light is worse than a dark one. */
 #define CD_CHANNEL_UNMAPPED (-1)
 
 typedef struct {
@@ -53,27 +31,17 @@ cd_channel_map_t cd_default_channel_map(void);
 
 typedef struct cd_telemetry_source cd_telemetry_source;
 
-/*
- * Open a source.
- *
- * device may be NULL to use SensorHub's default port.  If the port cannot be
- * opened, this still succeeds and returns a source in demo mode, because a
- * dashboard that refuses to start without a car attached is useless on a
- * bench.  Check cd_telemetry_source_is_live() to tell the two apart.
- */
+/* device may be NULL for SensorHub's default port. A port that will not open
+   still succeeds, in demo mode: a dashboard that refuses to start without a
+   car is useless on a bench. Check cd_telemetry_source_is_live(). */
 cd_telemetry_source *cd_telemetry_source_open(const char *device,
                                               const cd_channel_map_t *map);
 
 /* True when real packets are arriving from hardware. */
 bool cd_telemetry_source_is_live(const cd_telemetry_source *source);
 
-/*
- * Advance by elapsed_ms and write the latest telemetry into *out.
- *
- * Returns true if anything changed.  Non-blocking: in live mode it drains
- * whatever bytes are waiting and keeps the newest packet, so a slow UI frame
- * never backs up the serial buffer.
- */
+/* Non-blocking. Drains whatever is waiting and keeps the newest packet, so a
+   slow UI frame never backs up the serial buffer. True if anything changed. */
 bool cd_telemetry_source_poll(cd_telemetry_source *source, uint32_t elapsed_ms,
                               race_telemetry_t *out);
 

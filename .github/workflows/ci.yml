@@ -91,14 +91,20 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential cmake libsdl2-dev
-      - name: Compile src/ with -Wall -Wextra -Werror
+      - name: Compile our own sources with -Wall -Wextra -Werror
         run: |
           cmake -S . -B build
           cmake --build build -j --target lvgl
-          for f in src/main.c src/race_dashboard.c src/hal/hal.c src/telemetry_source.c; do
+          # discovered, not hardcoded: a hardcoded list silently stops
+          # covering a file the moment someone moves or adds one, which is
+          # exactly what happened when src/ was split into primary/
+          files=$(find src primary -name '*.c' -not -path '*/fonts/*' | sort)
+          echo "checking:"; echo "$files" | sed 's/^/  /'
+          test -n "$files"
+          for f in $files; do
             echo "== $f"
             cc -std=c99 -Wall -Wextra -Werror -c "$f" -o /dev/null \
-               -I. -Isrc -Ilvgl $(sdl2-config --cflags)
+               -I. -Isrc -Iprimary -Ilvgl $(sdl2-config --cflags)
           done
 
   demo-only:

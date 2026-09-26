@@ -33,7 +33,7 @@
 #include <string.h>
 
 
-#include "../primary/race_dashboard.h"
+#include "race_dashboard.h"
 #include "telemetry_source.h"
 
 static void sleep_ms(uint32_t ms)

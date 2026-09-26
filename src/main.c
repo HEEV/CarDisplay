@@ -34,6 +34,7 @@
 
 
 #include "race_dashboard.h"
+#include "telemetry_source.h"
 
 static void sleep_ms(uint32_t ms)
 {
@@ -56,36 +57,20 @@ race_telemetry_t t = {
     .engine_on_valid = true,
    };
 
-/* Stand-in telemetry for a car that is not plugged in.  A supermileage car
-   does not hold a steady throttle: it burns up to a target speed, shuts the
-   engine off, coasts a long way while it slows, then burns again.  Reporting
-   a permanently running engine, as this used to, left the dashboard pinned in
-   its engine-on state and drew the burn/coast rails as one flat colour. */
+/* The demo's burn window is also what the dashboard draws its wing ticks
+   against until a real strategizer supplies one.  The simulation itself now
+   lives in telemetry_source.c alongside the live path, so that the dashboard
+   has exactly one way in regardless of whether a car is attached. */
 #define DEMO_BURN_TO_MPH    30.0f   /* shut the engine off at this speed */
 #define DEMO_COAST_TO_MPH   14.0f   /* light it again at this speed */
-#define DEMO_BURN_ACCEL      2.5f   /* mph gained per second under power */
-#define DEMO_COAST_DECEL     0.9f   /* mph lost per second coasting */
-#define DEMO_TIME_SCALE      2.0f   /* run the fake race faster than life */
-#define FT_PER_SEC_PER_MPH   1.46667f
-
-static void advance_demo(race_telemetry_t * tm, float elapsed_s)
-{
-    float dt = elapsed_s * DEMO_TIME_SCALE;
-
-    if(tm->engine_on) {
-        tm->speed_mph += DEMO_BURN_ACCEL * dt;
-        if(tm->speed_mph >= DEMO_BURN_TO_MPH) tm->engine_on = false;
-    }
-    else {
-        tm->speed_mph -= DEMO_COAST_DECEL * dt;
-        if(tm->speed_mph <= DEMO_COAST_TO_MPH) tm->engine_on = true;
-    }
-
-    tm->distance_ft += tm->speed_mph * FT_PER_SEC_PER_MPH * dt;
-}
 
 int main(int argc, char **argv)
 {
+  /* Optional serial device. Without one the source falls back to the demo,
+     which is what keeps this useful on a laptop with no car attached. */
+  const char * device = (argc > 1) ? argv[1] : NULL;
+  cd_telemetry_source * source;
+
   /*Initialize LVGL*/
   lv_init();
 
@@ -96,7 +81,17 @@ int main(int argc, char **argv)
   /* The real pair comes from the strategizer; the demo drives its own. */
   race_dashboard_set_burn_window(DEMO_COAST_TO_MPH, DEMO_BURN_TO_MPH);
 
-  t.speed_mph = DEMO_COAST_TO_MPH;
+  source = cd_telemetry_source_open(device, NULL);
+
+  if(source == NULL) {
+    fprintf(stderr, "could not allocate a telemetry source\n");
+    return 1;
+  }
+
+  printf("telemetry: %s\n",
+         cd_telemetry_source_is_live(source) ? "live from the car"
+                                             : "demo (no serial device)");
+
   uint32_t last_tick = lv_tick_get();
 
   while(1) {
@@ -109,11 +104,12 @@ int main(int argc, char **argv)
     sleep_ms(sleep_time_ms);
 
     uint32_t now = lv_tick_get();
-    advance_demo(&t, (now - last_tick) / 1000.0f);
+    cd_telemetry_source_poll(source, now - last_tick, &t);
     last_tick = now;
     race_dashboard_set_telemetry(&t);
   }
 
+  cd_telemetry_source_close(source);
   return 0;
 }
 

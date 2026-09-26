@@ -118,6 +118,15 @@ if(LV_USE_FREETYPE)
 endif()
 
 add_executable(main ${MAIN_SOURCES})
+
+# Both source directories are on the include path so that headers refer to
+# each other by name. The alternative, reaching up with "../primary/...",
+# bakes the current layout into every #include and breaks again on the next
+# move; that is what took main red after the files were rearranged.
+target_include_directories(main PRIVATE
+    ${PROJECT_SOURCE_DIR}/src
+    ${PROJECT_SOURCE_DIR}/primary
+)
 target_compile_definitions(main PRIVATE LV_CONF_INCLUDE_SIMPLE)
 target_link_libraries(main ${MAIN_LIBS})
 

@@ -21,9 +21,8 @@ _Static_assert(SH_ANALOG_BATTERY == 0,
                "battery moved; update cd_default_channel_map()");
 #endif
 
-/* Demo shape: a supermileage car burns to a target, shuts off, and coasts a
-   long way.  Holding a steady throttle, as an earlier version did, left the
-   burn/coast rails drawn as one flat colour. */
+/* A supermileage car burns to a target then coasts a long way; a steady
+   throttle drew the burn/coast rails as one flat colour. */
 #define DEMO_BURN_TO_MPH  30.0f
 #define DEMO_COAST_TO_MPH 14.0f
 #define DEMO_BURN_ACCEL    2.5f

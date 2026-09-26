@@ -37,7 +37,7 @@ set(MAIN_SOURCES src/hal/hal.c)
 set(MAIN_LIBS lvgl lvgl::examples lvgl::demos lvgl::thorvg ${SDL2_LIBRARIES})
 
 # Create the main executable, depending on the FreeRTOS option
-list(APPEND MAIN_SOURCES src/main.c src/race_dashboard.c src/fonts/speed_digits_224.c)
+list(APPEND MAIN_SOURCES src/main.c primary/race_dashboard.c primary/fonts/speed_digits_224.c)
 list(APPEND MAIN_SOURCES src/telemetry_source.c)
 
 # SensorHub supplies live telemetry from the Arduino. Optional on purpose:

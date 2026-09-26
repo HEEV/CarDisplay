@@ -38,7 +38,7 @@ set(MAIN_LIBS lvgl lvgl::examples lvgl::demos lvgl::thorvg ${SDL2_LIBRARIES})
 
 # Create the main executable, depending on the FreeRTOS option
 list(APPEND MAIN_SOURCES src/main.c primary/race_dashboard.c primary/fonts/speed_digits_224.c)
-list(APPEND MAIN_SOURCES src/telemetry_source.c)
+list(APPEND MAIN_SOURCES src/sources.c)
 
 # SensorHub supplies live telemetry from the Arduino. Optional on purpose:
 # without it this still builds and runs the demo, which is what keeps the
@@ -64,6 +64,35 @@ elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../SensorHub/CMakeLists.txt")
     set(_cd_sensorhub "${CMAKE_CURRENT_SOURCE_DIR}/../SensorHub")
 else()
     set(_cd_sensorhub "")
+endif()
+
+set(CD_BMSHUB_PATH "" CACHE PATH "Path to a BmsHub checkout")
+option(CD_WITH_BMSHUB "Build with live BMS telemetry" ON)
+
+if(NOT CD_WITH_BMSHUB)
+    set(_cd_bmshub "")
+elseif(CD_BMSHUB_PATH)
+    if(NOT EXISTS "${CD_BMSHUB_PATH}/CMakeLists.txt")
+        message(FATAL_ERROR
+            "CD_BMSHUB_PATH=${CD_BMSHUB_PATH} has no CMakeLists.txt. "
+            "Fix the path, or pass -DCD_WITH_BMSHUB=OFF.")
+    endif()
+    set(_cd_bmshub "${CD_BMSHUB_PATH}")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/BmsHub/CMakeLists.txt")
+    set(_cd_bmshub "${CMAKE_CURRENT_SOURCE_DIR}/BmsHub")
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../BmsHub/CMakeLists.txt")
+    set(_cd_bmshub "${CMAKE_CURRENT_SOURCE_DIR}/../BmsHub")
+else()
+    set(_cd_bmshub "")
+endif()
+
+if(_cd_bmshub)
+    message(STATUS "CarDisplay: live BMS via BmsHub at ${_cd_bmshub}")
+    add_subdirectory(${_cd_bmshub} ${CMAKE_BINARY_DIR}/bmshub EXCLUDE_FROM_ALL)
+    list(APPEND MAIN_LIBS jbd)
+    add_compile_definitions(CD_HAVE_BMSHUB=1)
+else()
+    message(STATUS "CarDisplay: BmsHub not found, no pack telemetry")
 endif()
 
 if(_cd_sensorhub)
@@ -126,6 +155,7 @@ add_executable(main ${MAIN_SOURCES})
 target_include_directories(main PRIVATE
     ${PROJECT_SOURCE_DIR}/src
     ${PROJECT_SOURCE_DIR}/primary
+    ${PROJECT_SOURCE_DIR}/include
 )
 target_compile_definitions(main PRIVATE LV_CONF_INCLUDE_SIMPLE)
 target_link_libraries(main ${MAIN_LIBS})

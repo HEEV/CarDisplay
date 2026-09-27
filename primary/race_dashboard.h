@@ -2,20 +2,11 @@
 #define RACE_DASHBOARD_H
 
 #include "lvgl/lvgl.h"
+#include "telemetry.h"
 #include <stdbool.h>
 
-typedef struct {
-    float speed_mph;
-    float airspeed_mph;
-    float distance_ft;
-    float voltage_v;
-    bool voltage_valid;
-    bool engine_armed;
-    bool engine_armed_valid;
-    bool engine_on;
-    bool engine_on_valid;
-    bool timer_reset;
-} race_telemetry_t;
+/* race_telemetry_t lives in telemetry.h: the sources produce it and should
+   not have to include a dashboard header to know its shape. */
 
 
 /* Create the dashboard beneath parent (usually lv_scr_act()). */

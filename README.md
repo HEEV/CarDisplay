@@ -22,6 +22,12 @@ cmake -B build
 cmake --build build
 ```
 
+RPI Compilation command:
+``` shell
+cmake -B build -GNinja -DCMAKE_TOOLCHAIN_FILE=cmake/cross.cmake
+cmake --build build
+```
+
 Run with:
 
 ``` shell

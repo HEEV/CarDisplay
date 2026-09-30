@@ -20,8 +20,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 set(WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
 
-# Find and include SDL2 library
+if (RPI_CROSS) 
+set(SDL2_INCLUDE_DIRS "")
+set(SDL2_LIBRARIES "")
+else() 
 find_package(SDL2 REQUIRED)
+add_compile_definitions(LV_USE_SDL=1)
+endif()
+
 
 # Add compile definitions based on the selected options
 add_compile_definitions($<$<BOOL:${LV_USE_DRAW_SDL}>:LV_USE_DRAW_SDL=1>)
@@ -34,7 +40,7 @@ add_subdirectory(lvgl)
 target_include_directories(lvgl PUBLIC ${PROJECT_SOURCE_DIR} ${SDL2_INCLUDE_DIRS})
 
 set(MAIN_SOURCES src/hal/hal.c)
-set(MAIN_LIBS lvgl lvgl::examples lvgl::demos lvgl::thorvg ${SDL2_LIBRARIES})
+set(MAIN_LIBS lvgl lvgl::thorvg ${SDL2_LIBRARIES})
 
 # Create the main executable, depending on the FreeRTOS option
 list(APPEND MAIN_SOURCES src/main.c src/race_dashboard.c src/fonts/speed_digits_224.c)

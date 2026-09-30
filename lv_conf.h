@@ -1464,7 +1464,7 @@
 #endif /*LV_USE_LINUX_DRM*/
 
 /** Driver for /dev/fb */
-#define LV_USE_LINUX_FBDEV 0
+#define LV_USE_LINUX_FBDEV 1
 
 #if LV_USE_LINUX_FBDEV
 /** BSD-flavored framebuffer device */
@@ -1695,7 +1695,7 @@
 #endif /*LV_USE_QNX*/
 
 /** Open a window on a PC desktop with SDL2 and read mouse and keyboard input. */
-#define LV_USE_SDL 1
+//#define LV_USE_SDL 1
 
 #if LV_USE_SDL
 /** SDL include path */
@@ -2417,7 +2417,7 @@
  *============================================================================*/
 
 /** Build examples */
-#define LV_BUILD_EXAMPLES 1
+#define LV_BUILD_EXAMPLES 0
 
 
 
@@ -2426,7 +2426,7 @@
  *============================================================================*/
 
 /** Build demos */
-#define LV_BUILD_DEMOS 1
+#define LV_BUILD_DEMOS 0
 
 #if LV_BUILD_DEMOS
 /** Benchmark demo

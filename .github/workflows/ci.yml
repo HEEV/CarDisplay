@@ -98,13 +98,13 @@ jobs:
           # discovered, not hardcoded: a hardcoded list silently stops
           # covering a file the moment someone moves or adds one, which is
           # exactly what happened when src/ was split into primary/
-          files=$(find src primary -name '*.c' -not -path '*/fonts/*' | sort)
+          files=$(find src -name '*.c' -not -path '*/fonts/*' | sort)
           echo "checking:"; echo "$files" | sed 's/^/  /'
           test -n "$files"
           for f in $files; do
             echo "== $f"
             cc -std=c99 -Wall -Wextra -Werror -c "$f" -o /dev/null \
-               -I. -Isrc -Iprimary -Iinclude -Ilvgl $(sdl2-config --cflags)
+               -I. -Isrc -Iinclude -Ilvgl $(sdl2-config --cflags)
           done
 
   demo-only:

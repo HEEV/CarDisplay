@@ -31,7 +31,7 @@ extern "C" {
  * Initialize the Hardware Abstraction Layer (HAL) for the LVGL graphics
  * library
  */
-lv_display_t * sdl_hal_init(int32_t w, int32_t h);
+lv_display_t * hal_init();
 
 /**********************
  *      MACROS

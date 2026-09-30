@@ -1,34 +1,32 @@
 #include "hal.h"
 
+#define SCREEN_WIDTH 1024
+#define SCREEN_HEIGHT 600
 
-lv_display_t * sdl_hal_init(int32_t w, int32_t h)
+lv_display_t * hal_init()
 {
 
-  lv_group_set_default(lv_group_create());
+  #if LV_USE_SDL
+    lv_group_set_default(lv_group_create());
 
-  lv_display_t * disp = lv_sdl_window_create(w, h);
+    lv_display_t * disp = lv_sdl_window_create(SCREEN_WIDTH, SCREEN_HEIGHT);
 
-  // lv_indev_t * mouse = lv_sdl_mouse_create();
-  // lv_indev_set_group(mouse, lv_group_get_default());
-  // lv_indev_set_display(mouse, disp);
-  lv_display_set_default(disp);
-  /*Declare the image file.*/
-  // LV_IMAGE_DECLARE(mouse_cursor_icon);
-  // lv_obj_t * cursor_obj;
-  // /*Create an image object for the cursor */
-  // cursor_obj = lv_image_create(lv_screen_active());
-  // /*Set the image source*/
-  // lv_image_set_src(cursor_obj, &mouse_cursor_icon);
-  // /*Connect the image  object to the driver*/
-  // lv_indev_set_cursor(mouse, cursor_obj);
+    lv_display_set_default(disp);
+  #else
+    const char * device = "/dev/fb0";
+    lv_display_t * disp = lv_linux_fbdev_create();
 
-  // lv_indev_t * mousewheel = lv_sdl_mousewheel_create();
-  // lv_indev_set_display(mousewheel, disp);
-  // lv_indev_set_group(mousewheel, lv_group_get_default());
+    if(disp == NULL) {
+        return NULL;
+    }
 
-  // lv_indev_t * kb = lv_sdl_keyboard_create();
-  // lv_indev_set_display(kb, disp);
-  // lv_indev_set_group(kb, lv_group_get_default());
+    lv_result_t res = lv_linux_fbdev_set_file(disp, device);
+    if(res != LV_RESULT_OK) {
+        lv_display_delete(disp);
+        return NULL;
+    }
+  #endif
+
 
   return disp;
 }

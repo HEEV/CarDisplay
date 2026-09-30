@@ -20,7 +20,6 @@
   #include <pthread.h>
 #endif
 #include "../lvgl/lvgl.h"
-#include <SDL.h>
 
 #include "hal/hal.h"
 
@@ -75,7 +74,7 @@ int main(int argc, char **argv)
   cd_sources * sources;
 
   lv_init();
-  sdl_hal_init(1024, 600);
+  hal_init();
 
   race_dashboard_create(lv_scr_act());
 

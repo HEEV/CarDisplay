@@ -37,7 +37,7 @@ set(MAIN_SOURCES src/hal/hal.c)
 set(MAIN_LIBS lvgl lvgl::examples lvgl::demos lvgl::thorvg ${SDL2_LIBRARIES})
 
 # Create the main executable, depending on the FreeRTOS option
-list(APPEND MAIN_SOURCES src/main.c primary/race_dashboard.c primary/fonts/speed_digits_224.c)
+list(APPEND MAIN_SOURCES src/main.c src/race_dashboard.c src/fonts/speed_digits_224.c)
 list(APPEND MAIN_SOURCES src/sources.c)
 
 # SensorHub supplies live telemetry from the Arduino. Optional on purpose:
@@ -154,7 +154,6 @@ add_executable(main ${MAIN_SOURCES})
 # move; that is what took main red after the files were rearranged.
 target_include_directories(main PRIVATE
     ${PROJECT_SOURCE_DIR}/src
-    ${PROJECT_SOURCE_DIR}/primary
     ${PROJECT_SOURCE_DIR}/include
 )
 target_compile_definitions(main PRIVATE LV_CONF_INCLUDE_SIMPLE)

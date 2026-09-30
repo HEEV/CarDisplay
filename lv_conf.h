@@ -128,8 +128,7 @@
  *============================================================================*/
 
 /** Color depth: 1 (I1), 8 (L8), 16 (RGB565), 24 (RGB888), 32 (XRGB8888) */
-#define LV_COLOR_DEPTH 16
-
+#define LV_COLOR_FORMAT_DEFAULT LV_COLOR_FORMAT_RGB565
 /** 0: no adjustment, get the integer part of the result (round down)
  *  64: round up from x.75
  *  128: round up from half
@@ -1464,7 +1463,6 @@
 #endif /*LV_USE_LINUX_DRM*/
 
 /** Driver for /dev/fb */
-#define LV_USE_LINUX_FBDEV 1
 
 #if LV_USE_LINUX_FBDEV
 /** BSD-flavored framebuffer device */

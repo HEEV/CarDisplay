@@ -19,13 +19,13 @@ brew install cmake sdl2
 Compilation command:
 ``` shell
 cmake -B build
-cmake --build build
+cmake --build build -j$(nproc)
 ```
 
 RPI Compilation command:
 ``` shell
 cmake -B build -GNinja -DCMAKE_TOOLCHAIN_FILE=cmake/cross.cmake
-cmake --build build
+cmake --build build -j$(nproc)
 ```
 
 Run with:

@@ -204,7 +204,7 @@
 #define LV_USE_SNAPSHOT 0
 
 /** Backend that gives the SW renderer vector graphics support. */
-#define LV_USE_THORVG 0
+#define LV_USE_THORVG 1
 
 #if LV_USE_THORVG
 /** Build the ThorVG copy shipped with LVGL instead of linking an external one. */
@@ -987,7 +987,7 @@
 /** Include the header given by LV_FONT_CUSTOM_INCLUDE to declare custom
  *  fonts (LV_FONT_CUSTOM_DECLARE) or override font-related macros.
  */
-#define LV_FONT_USE_CUSTOM_INCLUDE 1
+#define LV_FONT_USE_CUSTOM_INCLUDE 0
 
 #if LV_FONT_USE_CUSTOM_INCLUDE
 /** Optional header to override font-related macros.

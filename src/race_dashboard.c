@@ -608,20 +608,18 @@ static void apply_dial(void)
     }
 
     for(uint8_t i = 0; i < WING_SEGMENTS * 2; i++) {
-        if(solid) lv_obj_add_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_remove_flag(dash.wing[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(dash.wing[i], solid);
     }
     for(uint8_t i = 0; i < 2; i++) {
         lv_obj_set_style_arc_color(dash.ring[i], lv_color_hex(rgb), LV_PART_MAIN);
-        if(solid) lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
-        else lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(dash.ring[i], !solid);
     }
     if(solid) {
         lv_label_set_text(dash.engine_call, text);
         lv_obj_set_style_text_color(dash.engine_call, lv_color_hex(rgb), 0);
-        lv_obj_remove_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_hidden(dash.engine_call, false);
     }
-    else lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+    else lv_obj_set_hidden(dash.engine_call, true);
 
     /* Fade the speed back behind the message so the instruction reads first. */
     lv_opa_t readout = solid ? LV_OPA_30 : LV_OPA_COVER;
@@ -802,8 +800,8 @@ void race_dashboard_create(lv_obj_t * parent)
         lv_obj_align(dash.ring[i], LV_ALIGN_CENTER, 0, 0);
         lv_obj_set_style_arc_width(dash.ring[i], DIAL_BAND, LV_PART_MAIN);
         lv_arc_set_bg_angles(dash.ring[i], ring_span[i][0], ring_span[i][1]);
-        lv_obj_remove_flag(dash.ring[i], LV_OBJ_FLAG_CLICKABLE);
-        lv_obj_add_flag(dash.ring[i], LV_OBJ_FLAG_HIDDEN);
+        lv_obj_set_clickable(dash.ring[i], false);
+        lv_obj_set_hidden(dash.ring[i], true);
     }
 
     /* Centre the readout as one block: the digits, a gap, then the unit.
@@ -819,7 +817,7 @@ void race_dashboard_create(lv_obj_t * parent)
        around when the dial changes state. */
     dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &montserrat_86);
     lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, 0);
-    lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(dash.engine_call, true);
 
     lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), FONT_TEXT); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, SC(20));
     dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &montserrat_86);
@@ -834,7 +832,7 @@ void race_dashboard_create(lv_obj_t * parent)
     update_wind_arrow(0.0f);
 
     dash.relative = make_label(right, "", lv_color_hex(C_TEXT), FONT_TEXT);
-    lv_obj_add_flag(dash.relative, LV_OBJ_FLAG_HIDDEN);
+    lv_obj_set_hidden(dash.relative, true);
 
     lv_obj_t * wind_units = make_label(right, "MPH", lv_color_hex(C_TEXT), FONT_TEXT);
     lv_obj_align(wind_units, LV_ALIGN_BOTTOM_MID, 0, SC(-17));

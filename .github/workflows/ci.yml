@@ -101,10 +101,16 @@ jobs:
           files=$(find src -name '*.c' -not -path '*/fonts/*' | sort)
           echo "checking:"; echo "$files" | sed 's/^/  /'
           test -n "$files"
-          for f in $files; do
-            echo "== $f"
-            cc -std=c99 -Wall -Wextra -Werror -c "$f" -o /dev/null \
-               -I. -Isrc -Iinclude -Ilvgl $(sdl2-config --cflags)
+          # the display driver is picked by a compile definition, so every
+          # source has two preprocessed forms. check both, or the branch the
+          # car actually runs stays unchecked until someone flashes a Pi.
+          for driver in LV_USE_SDL LV_USE_LINUX_FBDEV; do
+            echo "=== with $driver"
+            for f in $files; do
+              echo "== $f"
+              cc -std=c99 -Wall -Wextra -Werror -D$driver=1 -c "$f" -o /dev/null \
+                 -I. -Isrc -Iinclude -Ilvgl $(sdl2-config --cflags)
+            done
           done
 
   demo-only:

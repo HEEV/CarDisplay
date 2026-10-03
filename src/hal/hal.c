@@ -3,6 +3,10 @@
 #define SCREEN_WIDTH 1920
 #define SCREEN_HEIGHT 1080
 
+#if !LV_USE_SDL && !LV_USE_LINUX_FBDEV
+#error "no display driver selected: define LV_USE_SDL=1 for the simulator or LV_USE_LINUX_FBDEV=1 for the car"
+#endif
+
 lv_display_t * hal_init()
 {
 

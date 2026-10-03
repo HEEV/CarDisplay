@@ -18,33 +18,41 @@
 /* Screen layout.  Everything is derived from the panel size and a single
    margin so the two side columns stay mirror images of each other and the
    upper half stays centred on the dial. */
-#define SCREEN_W       1024
-#define SCREEN_H        600
-#define EDGE             36
-#define COL_W           228
+#define SCREEN_W       1920
+#define SCREEN_H       1080
+/* The screen was designed against a 1024x600 panel.  Sizes are written in
+   design pixels and scaled to the real panel height by SC().  A 16:9 panel
+   is wider than the height-scaled design, and the leftover width goes into
+   the outer margins and the side columns so the dial stays circular and
+   the layout still fills the glass edge to edge. */
+#define SC(v)          ((int32_t)lroundf((float)(v) * SCREEN_H / 600.0f))
+#define SCF(v)         ((float)(v) * SCREEN_H / 600.0f)
+#define XTRA           (SCREEN_W - SC(1024))
+#define EDGE           (SC(36) + XTRA / 4)
+#define COL_W          (SC(228) + XTRA / 4)
 #define COL_LEFT_X     EDGE
 #define COL_RIGHT_X    (SCREEN_W - EDGE - COL_W)
-#define CARD_TOP_H      195
-#define CARD_BOTTOM_H   164
-#define CARD_GAP         24
+#define CARD_TOP_H     SC(195)
+#define CARD_BOTTOM_H  SC(164)
+#define CARD_GAP       SC(24)
 #define COLUMN_H        (CARD_TOP_H + CARD_GAP + CARD_BOTTOM_H)
-/* A card's one pixel border plus its ten pixels of padding, both sides. */
-#define CARD_INSET       22
+/* A card's border plus its padding, both sides. */
+#define CARD_INSET     (2 * (SC(1) + SC(10)))
 
-#define BOTTOM_H        126
-#define BOTTOM_W       1016
-#define BOTTOM_Y       (SCREEN_H - 4 - BOTTOM_H)
+#define BOTTOM_H       SC(126)
+#define BOTTOM_W       (SCREEN_W - 8)
+#define BOTTOM_Y       (SCREEN_H - SC(4) - BOTTOM_H)
 
 /* Rail geometry.  Segments need widths in pixels because a rail is usually
    only partly filled, and a percentage width would stretch them across the
    whole rail.  The rails span the drawable width of the strategy panel and
    the four lap cells divide that evenly, so widening the panel widens the
    rails with it instead of leaving them overhanging one edge. */
-#define CURSOR_W         3
-#define RAIL_INSET       4    /* one pixel of border and one of padding, both sides */
+#define CURSOR_W       SC(3)
+#define RAIL_INSET     (2 * (SC(1) + SC(1)))  /* rail border plus rail padding, both sides */
 #define RAIL_FULL_W     (BOTTOM_W - CARD_INSET)
 #define RAIL_LAP_STRIDE (RAIL_FULL_W / TRACK_LAPS)
-#define RAIL_LAP_GAP     6
+#define RAIL_LAP_GAP    SC(6)
 #define RAIL_LAP_W      (RAIL_LAP_STRIDE - RAIL_LAP_GAP)
 
 /* Middle of the space left above the strategy panel. */
@@ -58,11 +66,11 @@
    pitch, sweeping ninety degrees down each side.  The solid arcs that
    replace them occupy exactly the same band so nothing shifts when the dial
    swaps between the two. */
-#define DIAL_OUTER_R    225
-#define DIAL_BAND        30
+#define DIAL_OUTER_R    SC(225)
+#define DIAL_BAND       SC(30)
 #define DIAL_MID_R      (DIAL_OUTER_R - DIAL_BAND / 2)
 #define DIAL_BOX        (DIAL_OUTER_R * 2)
-#define TICK_W           18
+#define TICK_W          SC(18)
 #define TICK_PITCH_DEG    9.0f
 /* Index 0 of each wing is its lowest tick, the end the countdown starts from. */
 #define WING_LEFT_BASE  137.5f
@@ -92,11 +100,16 @@
 #define C_ICON_UNKNOWN    0xB4B4B4  /* --color-icon-disabled */
 #define DEG_TO_RAD 0.01745329251994329577f
 
-/* Montserrat digits at the size the browser build used for the speed readout
-   (14em against a 16px root).  Generated into src/fonts; see that file's header
-   for the exact command.  Rendering real glyphs at this size keeps the number
-   sharp on the 1024x600 panel; scaling up a 48px face does not. */
-LV_FONT_DECLARE(speed_digits_224);
+/* Typography in design pixels, mapped to faces at panel size.  LVGL's
+   bundled Montserrat cuts stop at 48px, so the two larger faces are
+   generated into src/fonts from the same Montserrat-Medium; see those
+   files' headers for the exact commands.  Rendering real glyphs at panel
+   size keeps the numbers sharp; scaling up a smaller face does not.  The
+   speed readout is the browser build's 14em against a 16px root. */
+#define FONT_TEXT      (&lv_font_montserrat_28)  /* 16 design px */
+#define FONT_MPH       (&lv_font_montserrat_44)  /* 24 design px */
+LV_FONT_DECLARE(montserrat_86);                  /* 48 design px */
+LV_FONT_DECLARE(speed_digits_403);               /* 224 design px */
 
 /* A race segment is either engine-off coasting or engine-on burning. */
 typedef enum { SEG_COAST, SEG_BURN } segment_type_t;
@@ -173,7 +186,8 @@ static const strategy_point_t simulation[] = {
 #define SIMULATION_POINTS (sizeof(simulation) / sizeof(simulation[0]))
 
 /* User-supplied ShellTrackFixed samples, decimated only along straight runs.
-   They are scaled once into the 225 x 120 px map viewport at startup. */
+   They are scaled once into the map viewport (225 x 120 design px) at
+   startup. */
 static const float track_source[][2] = {
     {226.99f,419.037f},{226.99f,369.043f},{226.080f,319.058f},{225.630f,269.062f},{224.720f,219.114f},{222.000f,169.210f},{222.000f,119.254f},
     {234.339f,100.230f},{263.765f,96.941f},{273.700f,81.020f},{271.767f,61.139f},{282.837f,33.953f},{307.226f,17.005f},{345.156f,5.000f},
@@ -191,8 +205,8 @@ static void prepare_track_points(void)
 {
     /* Raw bounds: x=222..578, y=5..595. Keep aspect ratio, center in map. */
     for(size_t i = 0; i < TRACK_POINT_COUNT; i++) {
-        track_points[i].x = (lv_coord_t)(67.0f + (track_source[i][0] - 222.0f) * 0.19f);
-        track_points[i].y = (lv_coord_t)(2.0f + (track_source[i][1] - 5.0f) * 0.19f);
+        track_points[i].x = (lv_coord_t)(SCF(67.0f) + (track_source[i][0] - 222.0f) * SCF(0.19f));
+        track_points[i].y = (lv_coord_t)(SCF(2.0f) + (track_source[i][1] - 5.0f) * SCF(0.19f));
     }
 }
 
@@ -219,9 +233,9 @@ static lv_obj_t * panel(lv_obj_t * parent)
     lv_obj_remove_style_all(p);
     lv_obj_set_style_bg_color(p, lv_color_hex(C_PANEL), 0);
     lv_obj_set_style_bg_opa(p, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(p, 16, 0);
-    lv_obj_set_style_pad_all(p, 10, 0);
-    lv_obj_set_style_border_width(p, 1, 0);
+    lv_obj_set_style_radius(p, SC(16), 0);
+    lv_obj_set_style_pad_all(p, SC(10), 0);
+    lv_obj_set_style_border_width(p, SC(1), 0);
     lv_obj_set_style_border_color(p, lv_color_hex(C_PANEL_BORDER), 0);
     return p;
 }
@@ -265,8 +279,8 @@ static lv_obj_t * progress_host(lv_obj_t * parent, lv_coord_t x, lv_coord_t y,
     lv_obj_set_style_bg_color(host, lv_color_hex(C_BG_SECONDARY), 0);
     lv_obj_set_style_bg_opa(host, LV_OPA_COVER, 0);
     lv_obj_set_style_border_color(host, lv_color_hex(C_GRAY), 0);
-    lv_obj_set_style_border_width(host, 1, 0);
-    lv_obj_set_style_pad_all(host, 1, 0);
+    lv_obj_set_style_border_width(host, SC(1), 0);
+    lv_obj_set_style_pad_all(host, SC(1), 0);
     return host;
 }
 
@@ -355,7 +369,7 @@ static void update_track(float distance)
     }
     lv_coord_t x = (lv_coord_t)(track_points[i].x + (track_points[i + 1].x - track_points[i].x) * f);
     lv_coord_t y = (lv_coord_t)(track_points[i].y + (track_points[i + 1].y - track_points[i].y) * f);
-    lv_obj_set_pos(dash.marker, x - 7, y - 7);
+    lv_obj_set_pos(dash.marker, x - SC(7), y - SC(7));
     /* 32, not 24: "Current Lap: " is 13 characters and an int can print 11
        more, so 24 could truncate. Laps never get near that in practice, but
        gcc cannot know that and is right to complain. */
@@ -399,20 +413,20 @@ static void append_live(float distance, segment_type_t status)
 /* Build a centered status pill and return its label so telemetry can recolor it. */
 static void make_status(lv_obj_t * parent, const char * text, lv_obj_t ** target)
 {
-    *target = make_label(parent, text, lv_color_hex(C_TEXT), &lv_font_montserrat_16);
+    *target = make_label(parent, text, lv_color_hex(C_TEXT), FONT_TEXT);
     lv_obj_set_width(*target, LV_PCT(100));
     lv_obj_set_style_bg_color(*target, lv_color_hex(C_ICON_UNKNOWN), 0);
     lv_obj_set_style_bg_opa(*target, LV_OPA_COVER, 0);
-    lv_obj_set_style_radius(*target, 8, 0);
-    lv_obj_set_style_pad_ver(*target, 7, 0);
+    lv_obj_set_style_radius(*target, SC(8), 0);
+    lv_obj_set_style_pad_ver(*target, SC(7), 0);
     lv_obj_set_style_text_align(*target, LV_TEXT_ALIGN_CENTER, 0);
 }
 
 /* The headwind arrow, drawn as a stroked polyline so it can point in any
    direction.  The car has no wind vane yet, so the browser dashboard fixed
    the direction at a pure headwind and this does the same. */
-#define WIND_ARROW_BOX  32
-#define WIND_ARROW_ARM  9.33f
+#define WIND_ARROW_BOX  SC(32)
+#define WIND_ARROW_ARM  SCF(9.33f)
 #define WIND_DIRECTION_DEG 180.0f
 static lv_point_precise_t wind_arrow_points[5];
 
@@ -721,30 +735,30 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_set_pos(bottom, (SCREEN_W - BOTTOM_W) / 2, BOTTOM_Y);
     lv_obj_set_size(bottom, BOTTOM_W, BOTTOM_H);
 
-    dash.lap_label = make_label(left, "Current Lap: 1", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
+    dash.lap_label = make_label(left, "Current Lap: 1", lv_color_hex(C_TEXT), FONT_TEXT);
     lv_obj_align(dash.lap_label, LV_ALIGN_TOP_MID, 0, 0);
-    lv_obj_t * map = lv_obj_create(left); lv_obj_remove_style_all(map); lv_obj_set_size(map, 225, 120); lv_obj_align(map, LV_ALIGN_TOP_MID, 0, 28);
+    lv_obj_t * map = lv_obj_create(left); lv_obj_remove_style_all(map); lv_obj_set_size(map, SC(225), SC(120)); lv_obj_align(map, LV_ALIGN_TOP_MID, 0, SC(28));
     prepare_track_points();
     lv_obj_t * line = lv_line_create(map); lv_line_set_points(line, track_points, TRACK_POINT_COUNT);
     lv_obj_set_size(line, LV_PCT(100), LV_PCT(100)); lv_obj_set_style_line_color(line, lv_color_hex(C_GRAY), 0);
-    lv_obj_set_style_line_width(line, 7, 0);
+    lv_obj_set_style_line_width(line, SC(7), 0);
     lv_obj_set_style_line_rounded(line, true, 0);
     dash.marker = lv_obj_create(map);
 
     lv_obj_remove_style_all(dash.marker);
-    lv_obj_set_size(dash.marker, 14, 14);
+    lv_obj_set_size(dash.marker, SC(14), SC(14));
     lv_obj_set_style_bg_color(dash.marker, lv_color_hex(C_TECH), 0);
     lv_obj_set_style_bg_opa(dash.marker, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(dash.marker, LV_RADIUS_CIRCLE, 0);
 
-    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_LABEL), &lv_font_montserrat_16);
-    lv_obj_align(voltage_title, LV_ALIGN_TOP_MID, 0, 20);
+    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_LABEL), FONT_TEXT);
+    lv_obj_align(voltage_title, LV_ALIGN_TOP_MID, 0, SC(20));
 
-    dash.voltage_value = make_label(left_voltage, "--", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
-    lv_obj_align(dash.voltage_value, LV_ALIGN_CENTER, 0, 9);
+    dash.voltage_value = make_label(left_voltage, "--", lv_color_hex(C_TEXT), &montserrat_86);
+    lv_obj_align(dash.voltage_value, LV_ALIGN_CENTER, 0, SC(9));
 
-    lv_obj_t * vunit = make_label(left_voltage, "V", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
-    lv_obj_align(vunit, LV_ALIGN_BOTTOM_MID, 0, -14);
+    lv_obj_t * vunit = make_label(left_voltage, "V", lv_color_hex(C_TEXT), FONT_TEXT);
+    lv_obj_align(vunit, LV_ALIGN_BOTTOM_MID, 0, SC(-14));
 
     lv_obj_t * speed_box = lv_obj_create(center);
     lv_obj_remove_style_all(speed_box);
@@ -794,58 +808,58 @@ void race_dashboard_create(lv_obj_t * parent)
 
     /* Centre the readout as one block: the digits, a gap, then the unit.
        The offsets account for the digits' ink sitting low in their line box. */
-    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_224);
-    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, -24);
+    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_403);
+    lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, SC(-24));
 
-    lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_24);
-    lv_obj_align(mph, LV_ALIGN_CENTER, 0, 93);
+    lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), FONT_MPH);
+    lv_obj_align(mph, LV_ALIGN_CENTER, 0, SC(93));
     dash.unit_label = mph;
 
     /* Sits over the dimmed speed rather than above it, so nothing shifts
        around when the dial changes state. */
-    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &lv_font_montserrat_48);
+    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &montserrat_86);
     lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, 0);
     lv_obj_add_flag(dash.engine_call, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), &lv_font_montserrat_16); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, 20);
-    dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &lv_font_montserrat_48);
-    lv_obj_align(dash.wind, LV_ALIGN_CENTER, -20, 5);
+    lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), FONT_TEXT); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, SC(20));
+    dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &montserrat_86);
+    lv_obj_align(dash.wind, LV_ALIGN_CENTER, -SC(20), SC(5));
 
     dash.wind_arrow = lv_line_create(right);
     lv_obj_set_size(dash.wind_arrow, WIND_ARROW_BOX, WIND_ARROW_BOX);
-    lv_obj_align(dash.wind_arrow, LV_ALIGN_CENTER, 43, 5);
+    lv_obj_align(dash.wind_arrow, LV_ALIGN_CENTER, SC(43), SC(5));
     lv_obj_set_style_line_color(dash.wind_arrow, lv_color_hex(C_TEXT), 0);
-    lv_obj_set_style_line_width(dash.wind_arrow, 4, 0);
+    lv_obj_set_style_line_width(dash.wind_arrow, SC(4), 0);
     lv_obj_set_style_line_rounded(dash.wind_arrow, true, 0);
     update_wind_arrow(0.0f);
 
-    dash.relative = make_label(right, "", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
+    dash.relative = make_label(right, "", lv_color_hex(C_TEXT), FONT_TEXT);
     lv_obj_add_flag(dash.relative, LV_OBJ_FLAG_HIDDEN);
 
-    lv_obj_t * wind_units = make_label(right, "MPH", lv_color_hex(C_TEXT), &lv_font_montserrat_16);
-    lv_obj_align(wind_units, LV_ALIGN_BOTTOM_MID, 0, -17);
+    lv_obj_t * wind_units = make_label(right, "MPH", lv_color_hex(C_TEXT), FONT_TEXT);
+    lv_obj_align(wind_units, LV_ALIGN_BOTTOM_MID, 0, SC(-17));
 
-    lv_obj_t * stitle = make_label(right_status, "ENGINE STATUS", lv_color_hex(C_LABEL), &lv_font_montserrat_16);
-    lv_obj_align(stitle, LV_ALIGN_TOP_MID, 0, 18);
+    lv_obj_t * stitle = make_label(right_status, "ENGINE STATUS", lv_color_hex(C_LABEL), FONT_TEXT);
+    lv_obj_align(stitle, LV_ALIGN_TOP_MID, 0, SC(18));
 
     make_status(right_status, "Armed", &dash.armed);
-    lv_obj_align(dash.armed, LV_ALIGN_TOP_MID, 0, 58);
+    lv_obj_align(dash.armed, LV_ALIGN_TOP_MID, 0, SC(58));
 
     make_status(right_status, "Running", &dash.running);
-    lv_obj_align(dash.running, LV_ALIGN_TOP_MID, 0, 108);
+    lv_obj_align(dash.running, LV_ALIGN_TOP_MID, 0, SC(108));
 
     /* Plan on top, the run being driven directly beneath it, so a lap that
        has drifted off plan shows up as the two rails disagreeing. */
-    dash.current_sim = progress_host(bottom, 0, 0, RAIL_FULL_W, 34);
-    dash.current_live = progress_host(bottom, 0, 38, RAIL_FULL_W, 34);
-    for(uint8_t i = 0; i < TRACK_LAPS; i++) dash.full_live[i] = progress_host(bottom, i * RAIL_LAP_STRIDE, 80, RAIL_LAP_W, 22);
+    dash.current_sim = progress_host(bottom, 0, 0, RAIL_FULL_W, SC(34));
+    dash.current_live = progress_host(bottom, 0, SC(38), RAIL_FULL_W, SC(34));
+    for(uint8_t i = 0; i < TRACK_LAPS; i++) dash.full_live[i] = progress_host(bottom, i * RAIL_LAP_STRIDE, SC(80), RAIL_LAP_W, SC(22));
 
     /* A single line through both full-width rails marking how far into the
        lap the car is.  Created last so it draws over them.  Reading straight
        down it says what the plan asked for and what the driver did. */
     dash.lap_cursor = lv_obj_create(bottom);
     lv_obj_remove_style_all(dash.lap_cursor);
-    lv_obj_set_size(dash.lap_cursor, CURSOR_W, 72);
+    lv_obj_set_size(dash.lap_cursor, CURSOR_W, SC(72));
     lv_obj_set_pos(dash.lap_cursor, 0, 0);
     lv_obj_set_style_bg_color(dash.lap_cursor, lv_color_hex(C_TEXT), 0);
     lv_obj_set_style_bg_opa(dash.lap_cursor, LV_OPA_COVER, 0);

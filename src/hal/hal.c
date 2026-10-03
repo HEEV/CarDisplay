@@ -1,7 +1,7 @@
 #include "hal.h"
 
-#define SCREEN_WIDTH 1024
-#define SCREEN_HEIGHT 600
+#define SCREEN_WIDTH 1920
+#define SCREEN_HEIGHT 1080
 
 lv_display_t * hal_init()
 {

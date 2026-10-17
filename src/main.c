@@ -75,7 +75,6 @@ int main(int argc, char **argv)
 
   lv_init();
   hal_init();
-
   race_dashboard_create(lv_scr_act());
 
   sources = cd_sources_start(&cfg);

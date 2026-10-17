@@ -11,6 +11,7 @@
 #ifdef CD_HAVE_SENSORHUB
 #include <sensorhub/sensorhub.h>
 #include <sensorhub/serial.h>
+#include <stdio.h>
 #endif
 
 #ifdef CD_HAVE_BMSHUB
@@ -121,6 +122,22 @@ static void *sensor_thread(void *arg)
     cd_sources *s = (cd_sources *)arg;
     sh_parser_t parser;
     sh_packet_t packet;
+    #if RECORDING
+        char filename[] = "records_XXXXXX";
+        int fd = mkstemp(filename);  // Replaces XXXXXX with a unique suffix
+        if (fd == -1) {
+            perror("mkstemp");
+            return NULL;
+        }
+
+        FILE *file = fdopen(fd, "wb");
+        if (!file) {
+            perror("fdopen");
+            close(fd);
+            unlink(filename);
+            return NULL;
+        }
+    #endif 
 
     sh_parser_init(&parser);
 
@@ -133,6 +150,25 @@ static void *sensor_thread(void *arg)
             if (st == SH_E_CLOSED || st == SH_E_IO) break;
             continue;
         }
+        #if RECORDING
+            struct timespec now;
+            if (timespec_get(&now, TIME_UTC) != TIME_UTC) {
+                fprintf(stderr, "Failed to get timestamp\n");
+                break;
+            }
+
+            int64_t timestamp_ms =
+                (int64_t)now.tv_sec * 1000 + now.tv_nsec / 1000000;
+
+            if (fwrite(&timestamp_ms, sizeof timestamp_ms, 1, file) != 1 ||
+                fwrite(&packet, sizeof packet, 1, file) != 1) {
+                fprintf(stderr, "Failed to write packet\n");
+                break;
+            }
+
+            fflush(file);
+            fsync(fd);
+        #endif
 
         pthread_mutex_lock(&s->sensors.lock);
         {
@@ -171,6 +207,11 @@ static void *sensor_thread(void *arg)
     pthread_mutex_lock(&s->sensors.lock);
     s->sensors.live = false;
     pthread_mutex_unlock(&s->sensors.lock);
+    #if RECORDING
+        if (fclose(file) != 0) {
+            perror("fclose");
+        }
+    #endif
     return NULL;
 }
 #endif /* CD_HAVE_SENSORHUB */

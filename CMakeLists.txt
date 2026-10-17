@@ -11,6 +11,9 @@ option(LV_USE_LIBJPEG_TURBO "Use libjpeg turbo to decode JPEG" OFF)
 option(LV_USE_FFMPEG "Use libffmpeg to display video using lv_ffmpeg" OFF)
 option(LV_USE_FREETYPE "Use freetype library" OFF)
 
+option(KARCH "Apply Karch edits" OFF)
+option(RECORDING "Enable Recording Code" OFF)
+
 # Set C and C++ standards
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_CXX_STANDARD 17)
@@ -19,6 +22,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Set the output path for the executable
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 set(WORKING_DIRECTORY ${PROJECT_SOURCE_DIR})
+
+if (RECORDING)
+add_compile_definitions(RECORDING=1)
+endif()
+
+if (KARCH)
+add_compile_definitions(KARCH=1)
+endif()
 
 if (RPI_CROSS) 
 set(SDL2_INCLUDE_DIRS "")

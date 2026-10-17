@@ -26,7 +26,9 @@ lv_display_t * hal_init()
         return NULL;
     }
   #endif
-
+  #if KARCH
+    lv_display_set_rotation(disp, LV_DISPLAY_ROTATION_180);
+  #endif
 
   return disp;
 }

@@ -131,7 +131,7 @@ typedef enum {
 typedef struct {
     lv_obj_t * root;
     lv_obj_t * speed_value;
-    lv_obj_t * voltage_value;
+    lv_obj_t * bat_percent_value;
     lv_obj_t * armed;
     lv_obj_t * running;
     lv_obj_t * wind;
@@ -712,9 +712,9 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_set_pos(left, COL_LEFT_X, CARD_TOP_Y);
     lv_obj_set_size(left, COL_W, CARD_TOP_H);
 
-    lv_obj_t * left_voltage = panel(parent);
-    lv_obj_set_pos(left_voltage, COL_LEFT_X, CARD_BOTTOM_Y);
-    lv_obj_set_size(left_voltage, COL_W, CARD_BOTTOM_H);
+    lv_obj_t * left_bat_percent = panel(parent);
+    lv_obj_set_pos(left_bat_percent, COL_LEFT_X, CARD_BOTTOM_Y);
+    lv_obj_set_size(left_bat_percent, COL_W, CARD_BOTTOM_H);
 
     lv_obj_t * center = lv_obj_create(parent);
     lv_obj_remove_style_all(center);
@@ -749,13 +749,13 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_set_style_bg_opa(dash.marker, LV_OPA_COVER, 0);
     lv_obj_set_style_radius(dash.marker, LV_RADIUS_CIRCLE, 0);
 
-    lv_obj_t * voltage_title = make_label(left_voltage, "VOLTAGE", lv_color_hex(C_LABEL), FONT_TEXT);
-    lv_obj_align(voltage_title, LV_ALIGN_TOP_MID, 0, SC(20));
+    lv_obj_t * bat_percent_title = make_label(left_bat_percent, "BATTERY PERCENT", lv_color_hex(C_LABEL), FONT_TEXT);
+    lv_obj_align(bat_percent_title, LV_ALIGN_TOP_MID, 0, SC(20));
 
-    dash.voltage_value = make_label(left_voltage, "--", lv_color_hex(C_TEXT), &montserrat_86);
-    lv_obj_align(dash.voltage_value, LV_ALIGN_CENTER, 0, SC(9));
+    dash.bat_percent_value = make_label(left_bat_percent, "--", lv_color_hex(C_TEXT), &montserrat_86);
+    lv_obj_align(dash.bat_percent_value, LV_ALIGN_CENTER, 0, SC(9));
 
-    lv_obj_t * vunit = make_label(left_voltage, "V", lv_color_hex(C_TEXT), FONT_TEXT);
+    lv_obj_t * vunit = make_label(left_bat_percent, "%", lv_color_hex(C_TEXT), FONT_TEXT);
     lv_obj_align(vunit, LV_ALIGN_BOTTOM_MID, 0, SC(-14));
 
     lv_obj_t * speed_box = lv_obj_create(center);
@@ -881,10 +881,10 @@ void race_dashboard_set_telemetry(const race_telemetry_t * t)
     snprintf(buf, sizeof(buf), "%.1f", t->speed_mph - t->airspeed_mph);
     lv_label_set_text(dash.relative, buf);
 
-    if(t->voltage_valid) {
-        snprintf(buf, sizeof(buf), "%d", (int)lroundf(t->voltage_v));
-        lv_label_set_text(dash.voltage_value, buf);
-    } else lv_label_set_text(dash.voltage_value, "--");
+    if(t->bms_valid) {
+        snprintf(buf, sizeof(buf), "%d", (int)lroundf(t->soc_percent));
+        lv_label_set_text(dash.bat_percent_value, buf);
+    } else lv_label_set_text(dash.bat_percent_value, "--");
 
     set_status(dash.armed, t->engine_armed, t->engine_armed_valid);
     set_status(dash.running, t->engine_on, t->engine_on_valid);

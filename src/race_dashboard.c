@@ -18,8 +18,8 @@
 /* Screen layout.  Everything is derived from the panel size and a single
    margin so the two side columns stay mirror images of each other and the
    upper half stays centred on the dial. */
-#define SCREEN_W       1920
-#define SCREEN_H       1080
+#define SCREEN_W       1024
+#define SCREEN_H       600
 /* The screen was designed against a 1024x600 panel.  Sizes are written in
    design pixels and scaled to the real panel height by SC().  A 16:9 panel
    is wider than the height-scaled design, and the leftover width goes into
@@ -100,16 +100,17 @@
 #define C_ICON_UNKNOWN    0xB4B4B4  /* --color-icon-disabled */
 #define DEG_TO_RAD 0.01745329251994329577f
 
-/* Typography in design pixels, mapped to faces at panel size.  LVGL's
-   bundled Montserrat cuts stop at 48px, so the two larger faces are
-   generated into src/fonts from the same Montserrat-Medium; see those
-   files' headers for the exact commands.  Rendering real glyphs at panel
-   size keeps the numbers sharp; scaling up a smaller face does not.  The
-   speed readout is the browser build's 14em against a 16px root. */
-#define FONT_TEXT      (&lv_font_montserrat_28)  /* 16 design px */
-#define FONT_MPH       (&lv_font_montserrat_44)  /* 24 design px */
-LV_FONT_DECLARE(montserrat_86);                  /* 48 design px */
-LV_FONT_DECLARE(speed_digits_403);               /* 224 design px */
+/* Typography in design pixels, mapped to faces at panel size.  At the
+   1024x600 panel these are one to one, so the bundled Montserrat cuts
+   cover everything but the speed readout, which is generated into
+   src/fonts from the same Montserrat-Medium; see that file's header for
+   the exact command.  The speed readout is the browser build's 14em
+   against a 16px root. */
+#define FONT_TEXT      (&lv_font_montserrat_16)
+#define FONT_MPH       (&lv_font_montserrat_24)
+#define FONT_BIG       (&lv_font_montserrat_48)
+LV_FONT_DECLARE(speed_digits_224);
+#define FONT_SPEED     (&speed_digits_224)
 
 /* A race segment is either engine-off coasting or engine-on burning. */
 typedef enum { SEG_COAST, SEG_BURN } segment_type_t;
@@ -752,7 +753,7 @@ void race_dashboard_create(lv_obj_t * parent)
     lv_obj_t * bat_percent_title = make_label(left_bat_percent, "BATTERY PERCENT", lv_color_hex(C_LABEL), FONT_TEXT);
     lv_obj_align(bat_percent_title, LV_ALIGN_TOP_MID, 0, SC(20));
 
-    dash.bat_percent_value = make_label(left_bat_percent, "--", lv_color_hex(C_TEXT), &montserrat_86);
+    dash.bat_percent_value = make_label(left_bat_percent, "--", lv_color_hex(C_TEXT), FONT_BIG);
     lv_obj_align(dash.bat_percent_value, LV_ALIGN_CENTER, 0, SC(9));
 
     lv_obj_t * vunit = make_label(left_bat_percent, "%", lv_color_hex(C_TEXT), FONT_TEXT);
@@ -806,7 +807,7 @@ void race_dashboard_create(lv_obj_t * parent)
 
     /* Centre the readout as one block: the digits, a gap, then the unit.
        The offsets account for the digits' ink sitting low in their line box. */
-    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), &speed_digits_403);
+    dash.speed_value = make_label(speed_box, "0", lv_color_hex(C_TEXT), FONT_SPEED);
     lv_obj_align(dash.speed_value, LV_ALIGN_CENTER, 0, SC(-24));
 
     lv_obj_t * mph = make_label(speed_box, "MPH", lv_color_hex(C_TEXT), FONT_MPH);
@@ -815,12 +816,12 @@ void race_dashboard_create(lv_obj_t * parent)
 
     /* Sits over the dimmed speed rather than above it, so nothing shifts
        around when the dial changes state. */
-    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), &montserrat_86);
+    dash.engine_call = make_label(speed_box, "", lv_color_hex(C_GREEN_HIGHLIGHT), FONT_BIG);
     lv_obj_align(dash.engine_call, LV_ALIGN_CENTER, 0, 0);
     lv_obj_set_hidden(dash.engine_call, true);
 
     lv_obj_t * wind_title = make_label(right, "HEADWIND SPEED", lv_color_hex(C_LABEL), FONT_TEXT); lv_obj_align(wind_title, LV_ALIGN_TOP_MID, 0, SC(20));
-    dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), &montserrat_86);
+    dash.wind = make_label(right, "0.0", lv_color_hex(C_TEXT), FONT_BIG);
     lv_obj_align(dash.wind, LV_ALIGN_CENTER, -SC(20), SC(5));
 
     dash.wind_arrow = lv_line_create(right);

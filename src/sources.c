@@ -7,6 +7,12 @@
 #include <string.h>
 #include <sys/time.h>
 #include <unistd.h>
+#include <errno.h>
+#include <limits.h>
+#include <dirent.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #ifdef CD_HAVE_SENSORHUB
 #include <sensorhub/sensorhub.h>
@@ -123,20 +129,73 @@ static void *sensor_thread(void *arg)
     sh_parser_t parser;
     sh_packet_t packet;
     #if RECORDING
-        char filename[] = "records_XXXXXX";
-        int fd = mkstemp(filename);  // Replaces XXXXXX with a unique suffix
-        if (fd == -1) {
-            perror("mkstemp");
+    const char *folder = "records";
+
+    if (mkdir(folder, 0755) == -1 && errno != EEXIST) {
+        perror("mkdir");
+        return NULL;
+    }
+
+    DIR *dir = opendir(folder);
+    if (!dir) {
+        perror("opendir");
+        return NULL;
+    }
+
+    unsigned long highest = 0;
+    struct dirent *entry;
+
+    while ((entry = readdir(dir)) != NULL) {
+        const char *name = entry->d_name;
+
+        if (strncmp(name, "records_", 8) != 0)
+            continue;
+
+        const char *digits = name + 8;
+
+        if (*digits < '0' || *digits > '9')
+            continue;
+
+        char *end;
+        errno = 0;
+        unsigned long number = strtoul(digits, &end, 10);
+
+        if (errno == 0 && *end == '\0' && number > highest)
+            highest = number;
+    }
+
+    closedir(dir);
+
+    char filename[128];
+    int fd;
+
+    while (1) {
+        if (highest == ULONG_MAX) {
+            fprintf(stderr, "Recording number limit reached\n");
             return NULL;
         }
 
-        FILE *file = fdopen(fd, "wb");
-        if (!file) {
-            perror("fdopen");
-            close(fd);
-            unlink(filename);
+        snprintf(filename, sizeof(filename),
+                 "%s/records_%lu", folder, ++highest);
+
+        fd = open(filename, O_WRONLY | O_CREAT | O_EXCL, 0644);
+
+        if (fd != -1)
+            break;
+
+        if (errno != EEXIST) {
+            perror("open");
             return NULL;
         }
+    }
+
+    FILE *file = fdopen(fd, "wb");
+    if (!file) {
+        perror("fdopen");
+        close(fd);
+        unlink(filename);
+        return NULL;
+    }
     #endif 
 
     sh_parser_init(&parser);

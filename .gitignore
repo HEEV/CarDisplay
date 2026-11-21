@@ -14,3 +14,5 @@ bin/
 
 # MacOS file
 .DS_Store
+
+records/

@@ -1,4 +1,5 @@
 #include "race_dashboard.h"
+#include "HEEV.c"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -701,6 +702,26 @@ void race_dashboard_create(lv_obj_t * parent)
     memset(&dash, 0, sizeof(dash));
     dash.root = parent;
     lv_obj_set_size(parent, SCREEN_W, SCREEN_H);
+
+    lv_obj_set_style_bg_color(parent, lv_color_hex(0xFFFFFF), 0);
+    lv_obj_t* image = lv_image_create(parent);
+    lv_image_set_src(image, &HEEV);
+    lv_obj_set_pos(image, 256, 200);
+    lv_obj_set_size(image,200,200);
+    lv_obj_t * label = lv_label_create(parent);
+    lv_label_set_text(label, "HEEV");
+    lv_obj_set_style_text_color(label, lv_color_hex(C_BG), 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_48, 0);
+    lv_obj_set_pos(label, 506, 220);
+    lv_obj_set_style_transform_zoom(label, 650, 0);
+    lv_obj_set_style_transform_width(label, 120, 0);
+    lv_obj_set_style_transform_height(label, 120, 0);
+
+    lv_timer_handler();
+    lv_sleep_ms(2000);
+    lv_obj_delete(image);
+    lv_obj_delete(label);
+
     lv_obj_set_style_bg_color(parent, lv_color_hex(C_BG), 0);
     lv_obj_set_style_bg_opa(parent, LV_OPA_COVER, 0);
 
